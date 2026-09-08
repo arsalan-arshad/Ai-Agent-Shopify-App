@@ -1,0 +1,19 @@
+import{E as p,m as h,c as E,a as y,r as i,b as M,j as g}from"./index-ChlofgUW.js";import{i as S,d as b,c as F,s as P,g as D,a as O,b as L,u as T,R as k,e as z,f as H,r as I}from"./components-BLMfUpc_.js";/**
+ * @remix-run/react v2.17.5
+ *
+ * Copyright (c) Remix Software Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE.md file in the root directory of this source tree.
+ *
+ * @license MIT
+ */function N(u){if(!u)return null;let _=Object.entries(u),a={};for(let[n,e]of _)if(e&&e.__type==="RouteErrorResponse")a[n]=new p(e.status,e.statusText,e.data,e.internal===!0);else if(e&&e.__type==="Error"){if(e.__subType){let o=window[e.__subType];if(typeof o=="function")try{let r=new o(e.message);r.stack=e.stack,a[n]=r}catch{}}if(a[n]==null){let o=new Error(e.message);o.stack=e.stack,a[n]=o}}else a[n]=e;return a}/**
+ * @remix-run/react v2.17.5
+ *
+ * Copyright (c) Remix Software Inc.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE.md file in the root directory of this source tree.
+ *
+ * @license MIT
+ */let s,t,c=!1,f;new Promise(u=>{f=u}).catch(()=>{});function B(u){if(!t){if(window.__remixContext.future.v3_singleFetch){if(!s){let l=window.__remixContext.stream;S(l,"No stream found for single fetch decoding"),window.__remixContext.stream=void 0,s=b(l,window).then(d=>{window.__remixContext.state=d.value,s.value=!0}).catch(d=>{s.error=d})}if(s.error)throw s.error;if(!s.value)throw s}let o=F(window.__remixManifest.routes,window.__remixRouteModules,window.__remixContext.state,window.__remixContext.future,window.__remixContext.isSpaMode),r;if(!window.__remixContext.isSpaMode){r={...window.__remixContext.state,loaderData:{...window.__remixContext.state.loaderData}};let l=h(o,window.location,window.__remixContext.basename);if(l)for(let d of l){let w=d.route.id,x=window.__remixRouteModules[w],m=window.__remixManifest.routes[w];x&&P(m,x,window.__remixContext.isSpaMode)&&(x.HydrateFallback||!m.hasLoader)?r.loaderData[w]=void 0:m&&!m.hasLoader&&(r.loaderData[w]=null)}r&&r.errors&&(r.errors=N(r.errors))}t=E({routes:o,history:y(),basename:window.__remixContext.basename,future:{v7_normalizeFormMethod:!0,v7_fetcherPersist:window.__remixContext.future.v3_fetcherPersist,v7_partialHydration:!0,v7_prependBasename:!0,v7_relativeSplatPath:window.__remixContext.future.v3_relativeSplatPath,v7_skipActionErrorRevalidation:window.__remixContext.future.v3_singleFetch===!0},hydrationData:r,mapRouteProperties:M,dataStrategy:window.__remixContext.future.v3_singleFetch&&!window.__remixContext.isSpaMode?O(window.__remixManifest,window.__remixRouteModules,()=>t):void 0,patchRoutesOnNavigation:D(window.__remixManifest,window.__remixRouteModules,window.__remixContext.future,window.__remixContext.isSpaMode,window.__remixContext.basename)}),t.state.initialized&&(c=!0,t.initialize()),t.createRoutesForHMR=L,window.__remixRouter=t,f&&f(t)}let[_,a]=i.useState(window.__remixContext.criticalCss);window.__remixClearCriticalCss=()=>a(void 0);let[n,e]=i.useState(t.state.location);return i.useLayoutEffect(()=>{c||(c=!0,t.initialize())},[]),i.useLayoutEffect(()=>t.subscribe(o=>{o.location!==n&&e(o.location)}),[n]),T(t,window.__remixManifest,window.__remixRouteModules,window.__remixContext.future,window.__remixContext.isSpaMode),i.createElement(i.Fragment,null,i.createElement(k.Provider,{value:{manifest:window.__remixManifest,routeModules:window.__remixRouteModules,future:window.__remixContext.future,criticalCss:_,isSpaMode:window.__remixContext.isSpaMode}},i.createElement(z,{location:n},i.createElement(H,{router:t,fallbackElement:null,future:{v7_startTransition:!0}}))),window.__remixContext.future.v3_singleFetch?i.createElement(i.Fragment,null):null)}var v,C=I;{var R=C.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;v=function(u,_,a){R.usingClientEntryPoint=!0;try{return C.hydrateRoot(u,_,a)}finally{R.usingClientEntryPoint=!1}}}i.startTransition(()=>{v(document,g.jsx(B,{}))});

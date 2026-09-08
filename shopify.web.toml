@@ -1,0 +1,7 @@
+roles = ["backend", "frontend"]
+auth_callback_path = "/auth/callback"
+webhooks_path = "/webhooks/orders-updated"
+
+[commands]
+dev = "npm exec remix vite:dev"
+build = "npm exec remix vite:build"

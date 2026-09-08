@@ -1,0 +1,62 @@
+// This is your Prisma schema file.
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // swap to "postgresql" for production
+  url      = env("DATABASE_URL")
+}
+
+/// Required by @shopify/shopify-app-session-storage-prisma.
+/// Field names/types below match what that package expects exactly —
+/// don't rename these or session storage breaks silently.
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+/// One row per SKU per day per shop. This is what replaces the
+/// placeholder history array in app/routes/app._index.jsx.
+/// Populated by the orders webhook handler (app/routes/webhooks.orders-updated.jsx).
+model DailyUsage {
+  id        Int      @id @default(autoincrement())
+  shop      String
+  sku       String
+  date      DateTime // stored at day granularity (time zeroed)
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, sku, date], name: "shop_sku_date")
+  @@index([shop, sku])
+}
+
+/// Per-SKU or per-supplier lead time override, since a single global
+/// constant (as in the MVP scaffold) doesn't hold for real merchants.
+/// Falls back to a shop-level default when no SKU-specific row exists.
+model LeadTimeSetting {
+  id           Int      @id @default(autoincrement())
+  shop         String
+  sku          String? // null = shop-wide default
+  leadTimeDays Int
+  supplierName String?
+  updatedAt    DateTime @updatedAt
+
+  @@unique([shop, sku], name: "shop_sku_leadtime")
+}
