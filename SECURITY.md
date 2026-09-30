@@ -5,5 +5,4 @@ ever stored, see the compliance webhook handlers in `app/routes/webhooks.*`) and
 own AI provider API keys (encrypted at rest, AES-256-GCM, see `app/lib/crypto.server.js`).
 
 If you find a security issue, please **do not open a public issue**. Email
-[CONTACT EMAIL — same address used in the Privacy Policy] instead with details. We'll
-acknowledge within a few days.
+arsalanarshad.dev@gmail.com instead with details. We'll acknowledge within a few days.
