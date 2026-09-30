@@ -2,7 +2,7 @@
 
 client_id = "46f2f939270873df79eb678079520ad2"
 name = "ai-forecast-agent"
-application_url = "https://geek-yield-browser-asbestos.trycloudflare.com"
+application_url = "https://ai-agent-shopify-app-production.up.railway.app"
 embedded = true
 
 [webhooks]
@@ -34,7 +34,7 @@ scopes = "read_inventory,read_locations,read_orders,read_products"
 
 [auth]
 redirect_urls = [
-  "https://geek-yield-browser-asbestos.trycloudflare.com/auth/callback"
+  "https://ai-agent-shopify-app-production.up.railway.app/auth/callback"
 ]
 
 [build]
