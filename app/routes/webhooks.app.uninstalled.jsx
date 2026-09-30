@@ -1,5 +1,6 @@
 import { authenticate } from "../lib/shopify.server.js";
 import prisma from "../lib/db.server.js";
+import { markShopUninstalled } from "../lib/merchant.server.js";
 
 /**
  * Fires when a merchant uninstalls the app. We delete the Session rows
@@ -18,6 +19,7 @@ export const action = async ({ request }) => {
   if (session) {
     await prisma.session.deleteMany({ where: { shop } });
   }
+  await markShopUninstalled(shop);
 
   return new Response();
 };

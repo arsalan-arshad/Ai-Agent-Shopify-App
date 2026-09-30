@@ -1,5 +1,6 @@
 import { Outlet } from "@remix-run/react";
 import { authenticate } from "../lib/shopify.server";
+import { syncShopProfile } from "../lib/merchant.server.js";
 
 /**
  * App layout route: protects all routes matching app.* pattern.
@@ -7,7 +8,12 @@ import { authenticate } from "../lib/shopify.server";
  * On success, `session` is available to all child routes.
  */
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
+
+  syncShopProfile(admin, session.shop).catch((err) => {
+    console.error(`syncShopProfile failed for ${session.shop}:`, err);
+  });
+
   return { shop: session.shop };
 };
 

@@ -15,6 +15,7 @@ import {
   Banner,
   DataTable,
   Badge,
+  Checkbox,
 } from "@shopify/polaris";
 import { authenticate } from "../lib/shopify.server.js";
 import {
@@ -23,18 +24,20 @@ import {
   getUsageSummary,
 } from "../lib/ai-settings.server.js";
 import { listLeadTimeSettings, setLeadTimeDays } from "../lib/usage-history.server.js";
+import { getMarketingOptIn, setMarketingOptIn, saveFeedback } from "../lib/merchant.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [aiSettings, usage, leadTimes] = await Promise.all([
+  const [aiSettings, usage, leadTimes, marketingOptIn] = await Promise.all([
     getShopAiSettings(shop),
     getUsageSummary(shop),
     listLeadTimeSettings(shop),
+    getMarketingOptIn(shop),
   ]);
 
-  return json({ aiSettings, usage, leadTimes });
+  return json({ aiSettings, usage, leadTimes, marketingOptIn });
 };
 
 export const action = async ({ request }) => {
@@ -65,6 +68,19 @@ export const action = async ({ request }) => {
       return json({ ok: true, intent });
     }
 
+    if (intent === "saveContactPrefs") {
+      const optIn = formData.get("marketingOptIn") === "true";
+      await setMarketingOptIn(shop, optIn);
+      return json({ ok: true, intent, marketingOptIn: optIn });
+    }
+
+    if (intent === "submitFeedback") {
+      const rating = parseInt(formData.get("rating"), 10);
+      const message = formData.get("message")?.toString() ?? "";
+      await saveFeedback(shop, rating, message);
+      return json({ ok: true, intent });
+    }
+
     return json({ ok: false, error: "Unknown action." }, { status: 400 });
   } catch (err) {
     console.error("Settings action failed:", err);
@@ -75,6 +91,19 @@ export const action = async ({ request }) => {
 const PROVIDER_OPTIONS = [
   { label: "Google Gemini", value: "gemini" },
   { label: "Anthropic Claude", value: "claude" },
+];
+
+// A plain fetch POST to a UI route makes Remix render the whole HTML page
+// after the action; `_data` asks for just the action's JSON.
+const SETTINGS_ACTION_URL = "/app/settings?_data=routes%2Fapp.settings";
+
+const RATING_OPTIONS = [
+  { label: "Choose a rating", value: "" },
+  { label: "5 — Excellent", value: "5" },
+  { label: "4 — Good", value: "4" },
+  { label: "3 — Okay", value: "3" },
+  { label: "2 — Poor", value: "2" },
+  { label: "1 — Very poor", value: "1" },
 ];
 
 function money(n) {
@@ -135,7 +164,7 @@ async function postWithSessionToken(path, formData) {
 }
 
 export default function Settings() {
-  const { aiSettings, usage, leadTimes } = useLoaderData();
+  const { aiSettings, usage, leadTimes, marketingOptIn } = useLoaderData();
 
   const [provider, setProvider] = useState(aiSettings?.provider ?? "gemini");
   const [apiKey, setApiKey] = useState("");
@@ -148,6 +177,60 @@ export default function Settings() {
   const [leadTimeSaving, setLeadTimeSaving] = useState(false);
   const [leadTimeResult, setLeadTimeResult] = useState(null);
 
+  const [optIn, setOptIn] = useState(marketingOptIn);
+  const [optInSaving, setOptInSaving] = useState(false);
+  const [optInResult, setOptInResult] = useState(null);
+  const [rating, setRating] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackResult, setFeedbackResult] = useState(null);
+
+  const handleOptInChange = async (checked) => {
+    if (optInSaving) return;
+    const previous = optIn;
+    setOptIn(checked);
+    setOptInSaving(true);
+    setOptInResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "saveContactPrefs");
+      fd.set("marketingOptIn", String(checked));
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      if (!data?.ok) setOptIn(previous);
+      setOptInResult(data);
+    } catch (err) {
+      console.error("Save contact preference failed:", err);
+      setOptIn(previous);
+      setOptInResult({ ok: false, error: err.message || "Couldn't save — please try again." });
+    } finally {
+      setOptInSaving(false);
+    }
+  };
+
+  const handleSubmitFeedback = async (event) => {
+    event.preventDefault();
+    if (feedbackSending) return;
+    setFeedbackSending(true);
+    setFeedbackResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "submitFeedback");
+      fd.set("rating", rating);
+      fd.set("message", feedbackMessage);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setFeedbackResult(data);
+      if (data?.ok) {
+        setRating("");
+        setFeedbackMessage("");
+      }
+    } catch (err) {
+      console.error("Submit feedback failed:", err);
+      setFeedbackResult({ ok: false, error: err.message || "Couldn't send — please try again." });
+    } finally {
+      setFeedbackSending(false);
+    }
+  };
+
   const handleSaveAiSettings = async (event) => {
     event.preventDefault();
     if (aiSaving) return;
@@ -158,7 +241,7 @@ export default function Settings() {
       fd.set("_action", "saveAiSettings");
       fd.set("provider", provider);
       fd.set("apiKey", apiKey);
-      const data = await postWithSessionToken("/app/settings", fd);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
       setAiResult(data);
       if (data?.ok) setApiKey("");
     } catch (err) {
@@ -180,7 +263,7 @@ export default function Settings() {
       fd.set("sku", sku);
       fd.set("leadTimeDays", leadTimeDays);
       fd.set("supplierName", supplierName);
-      const data = await postWithSessionToken("/app/settings", fd);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
       setLeadTimeResult(data);
       if (data?.ok) {
         setSku("");
@@ -360,6 +443,63 @@ export default function Settings() {
                   </Button>
                 </FormLayout>
               </form>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Contact &amp; feedback
+              </Text>
+
+              <Checkbox
+                label="OK to contact me for feedback or about custom Shopify work."
+                helpText="We only use your store email for support unless you tick this. You can untick it any time."
+                checked={optIn}
+                onChange={handleOptInChange}
+                disabled={optInSaving}
+              />
+              {optInResult?.ok && (
+                <Text as="p" tone="success">
+                  {optInResult.marketingOptIn ? "Thanks — you're opted in." : "Opted out."}
+                </Text>
+              )}
+              {optInResult?.ok === false && <Banner tone="critical">{optInResult.error}</Banner>}
+
+              <form onSubmit={handleSubmitFeedback}>
+                <FormLayout>
+                  <Select
+                    label="How is the app working for you?"
+                    name="rating"
+                    options={RATING_OPTIONS}
+                    value={rating}
+                    onChange={setRating}
+                  />
+                  <TextField
+                    label="Comment (optional)"
+                    name="message"
+                    value={feedbackMessage}
+                    onChange={setFeedbackMessage}
+                    multiline={3}
+                    maxLength={2000}
+                    showCharacterCount
+                    autoComplete="off"
+                  />
+                  {feedbackResult?.ok && <Banner tone="success">Thanks for the feedback!</Banner>}
+                  {feedbackResult?.ok === false && (
+                    <Banner tone="critical">{feedbackResult.error}</Banner>
+                  )}
+                  <Button submit loading={feedbackSending} disabled={!rating}>
+                    Send feedback
+                  </Button>
+                </FormLayout>
+              </form>
+
+              <Text as="p" tone="subdued">
+                Need custom Shopify work? Email arsalanarshad.dev@gmail.com
+              </Text>
             </BlockStack>
           </Card>
         </Layout.Section>

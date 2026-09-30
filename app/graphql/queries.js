@@ -71,3 +71,19 @@ export const INVENTORY_LEVELS_QUERY = `#graphql
     }
   }
 `;
+
+export const SHOP_PROFILE_QUERY = `#graphql
+  query ShopProfile {
+    shop {
+      name
+      email
+      shopOwnerName
+      plan {
+        publicDisplayName
+      }
+      billingAddress {
+        countryCodeV2
+      }
+    }
+  }
+`;

@@ -17,6 +17,8 @@ export const action = async ({ request }) => {
     prisma.leadTimeSetting.deleteMany({ where: { shop } }),
     prisma.aiUsageLog.deleteMany({ where: { shop } }),
     prisma.shopAiSettings.deleteMany({ where: { shop } }),
+    prisma.shopProfile.deleteMany({ where: { shop } }),
+    prisma.feedback.deleteMany({ where: { shop } }),
     prisma.session.deleteMany({ where: { shop } }),
   ]);
 

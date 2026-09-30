@@ -15,8 +15,8 @@ deterministic engine computed and refuses to answer outside it. That split
 
 Remix 2 (Vite) · React 18 · Polaris 13 · App Bridge 4 (via the raw
 `app-bridge.js` script tag + `<ui-nav-menu>`, not `@shopify/app-bridge-react`'s
-provider) · `@shopify/shopify-app-remix` 6 · Prisma 6 (SQLite in dev,
-Postgres in production) · Node >= 20.19 (tested on 22).
+provider) · `@shopify/shopify-app-remix` 6 · Prisma 6 (PostgreSQL in dev
+and production) · Node >= 20.19 (tested on 22).
 
 ## AI providers — bring your own key
 
@@ -49,6 +49,14 @@ directly.
 - `ShopAiSettings` — a shop's chosen provider + encrypted API key.
 - `AiUsageLog` — one row per AI chat call, for the usage panel and for
   basic per-shop rate limiting.
+- `ShopProfile` — the store owner's name, store email, plan and country
+  (the merchant, never their customers), plus the contact opt-in from
+  Settings. Feedback/custom-work outreach only goes to opted-in stores.
+- `Feedback` — rating + optional comment submitted from Settings.
+
+All shop data, including `ShopProfile` and `Feedback`, is deleted by the
+`shop/redact` webhook. `npm run stats` prints aggregate totals (no per-shop
+data) for the portfolio.
 
 ## Key files
 
@@ -73,13 +81,21 @@ directly.
 
 ## Local setup
 
+The app uses PostgreSQL everywhere (Prisma supports one database type per
+project), so you need a local Postgres. On macOS the simplest option is
+[Postgres.app](https://postgresapp.com): install it, start the server, then:
+
 ```bash
+createdb forecast            # Postgres.app's bin folder must be on your PATH
 npm install
-cp .env.example .env        # fill in real values, see comments in the file
-npx prisma migrate dev       # creates prisma/dev.sqlite locally
+cp .env.example .env        # fill in real values; DATABASE_URL points at the local "forecast" DB
+npx prisma migrate deploy    # creates the tables
 shopify app config link      # one-time: link to your Partner app
 npm run dev                  # shopify app dev — installs to a dev store, opens a tunnel
 ```
+
+`npx prisma studio` opens a browser view of every table. Never point your
+local `DATABASE_URL` at the production database.
 
 You'll need a free **Shopify Partner account** and a free **development
 store** from the Partner Dashboard — both are account-level steps on
@@ -87,13 +103,6 @@ Shopify's side, not something this repo can do for you.
 
 ## Known gaps / roadmap
 
-- **Production hosting**: `application_url` is currently a temporary
-  `trycloudflare.com` tunnel. Needs a stable HTTPS host (Fly.io, Render,
-  Railway, etc.) before submitting for review.
-- **Postgres**: `prisma/schema.prisma`'s datasource is SQLite for local
-  dev; switch `provider` to `"postgresql"` and point `DATABASE_URL` at a
-  real instance for production — SQLite doesn't work across multiple
-  server instances.
 - **Daily digest**: not built yet — would call `askForecastAgent`
   (`ai-agent.js`) on a schedule and send the summary by email/Slack.
 - **Auto-draft purchase orders**: would need a `write_inventory` (or
