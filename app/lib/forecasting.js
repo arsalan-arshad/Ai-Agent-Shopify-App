@@ -43,11 +43,17 @@ export function calculateReorderPoint({
 }) {
   const avgDailyUsage = weightedMovingAverage(dailyUsageHistory, 14);
 
-  const mean =
-    dailyUsageHistory.reduce((a, b) => a + b, 0) / dailyUsageHistory.length;
-  const variance =
-    dailyUsageHistory.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
-    dailyUsageHistory.length;
+  // Guard the empty-history case (e.g. a brand-new SKU with zero recorded
+  // days) — dividing by dailyUsageHistory.length would otherwise produce
+  // NaN and poison reorderPoint/safetyStock for the whole row.
+  const hasHistory = dailyUsageHistory.length > 0;
+  const mean = hasHistory
+    ? dailyUsageHistory.reduce((a, b) => a + b, 0) / dailyUsageHistory.length
+    : 0;
+  const variance = hasHistory
+    ? dailyUsageHistory.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
+      dailyUsageHistory.length
+    : 0;
   const stdDev = Math.sqrt(variance);
 
   const safetyStock = serviceLevelZ * stdDev * Math.sqrt(leadTimeDays);

@@ -33,20 +33,26 @@ export const RECENT_ORDERS_QUERY = `#graphql
   }
 `;
 
+// Paginated, multi-location inventory query. inventoryLevels is fetched
+// for up to 10 locations per item and summed by buildForecastSnapshot
+// (forecast-snapshot.server.js) — most merchants have 1-3 locations, so
+// this comfortably covers them without a second nested pagination layer.
 export const INVENTORY_LEVELS_QUERY = `#graphql
-  query InventoryLevels($first: Int!) {
-    inventoryItems(first: $first) {
+  query InventoryLevels($first: Int!, $after: String) {
+    inventoryItems(first: $first, after: $after) {
       edges {
+        cursor
         node {
           id
           sku
           variant {
             displayName
           }
-          inventoryLevels(first: 5) {
+          inventoryLevels(first: 10) {
             edges {
               node {
                 location {
+                  id
                   name
                 }
                 quantities(names: ["available"]) {
@@ -57,6 +63,10 @@ export const INVENTORY_LEVELS_QUERY = `#graphql
             }
           }
         }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
       }
     }
   }

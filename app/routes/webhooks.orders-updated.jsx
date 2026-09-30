@@ -4,48 +4,49 @@ import { recordOrderUsage } from "../lib/usage-history.server.js";
 /**
  * Fires on orders/create and orders/updated (see shopify.app.toml).
  *
- * IMPORTANT (token migration relevance): webhook handlers are exactly the
- * "background job" context called out in Shopify's own migration guidance
- * as the place expiring-token bugs surface first — there's no live user
- * session to trigger a re-auth prompt, so the session storage's stored
- * access/refresh token pair must already be valid or auto-refreshed here.
- * @shopify/shopify-app-remix handles the refresh transparently as long as
- * PrismaSessionStorage has a current refresh token on file for the shop.
+ * TOKEN LIFECYCLE: this is exactly the "background job" context where
+ * expiring-token bugs surface first — there's no live user session to
+ * trigger a re-auth prompt. authenticate.webhook refreshes the stored
+ * offline token transparently as long as shopify.server.js has
+ * `future.expiringOfflineAccessTokens: true` and the Session table has a
+ * valid refresh token on file (see prisma/schema.prisma).
  *
- * The handler now checks financial_status to avoid double-counting:
- * - orders/create: always record (first-time event)
- * - orders/updated: only record if financial_status is not "refunded" or "voided",
- *   and only if the line items are actually different (not just a metadata edit)
+ * IDEMPOTENCY: orders/updated fires on nearly any edit to an order, not
+ * just ones that change what was sold, and Shopify can redeliver any
+ * webhook. recordOrderUsage (usage-history.server.js) tracks the last
+ * line-item snapshot per order ID and only applies the delta, so repeated
+ * or edited deliveries for the same order don't double-count.
  */
 export const action = async ({ request }) => {
   const { shop, topic, payload } = await authenticate.webhook(request);
 
-  console.log(`Webhook ${topic} received for ${shop}`);
+  console.log(`Webhook ${topic} received for ${shop}, order ${payload?.id}`);
 
-  // Skip cancelled orders
-  if (payload?.cancelled_at) {
-    console.log(`Skipping cancelled order ${payload.id}`);
+  if (!payload?.id || !payload?.created_at) {
+    console.warn(`Webhook ${topic} for ${shop} missing id/created_at, skipping`);
     return new Response();
   }
 
-  // For orders/updated: skip refunded/voided orders (no inventory to record)
-  if (topic === "orders/updated") {
-    const financialStatus = payload?.financial_status;
-    if (financialStatus === "refunded" || financialStatus === "voided") {
-      console.log(`Skipping ${financialStatus} order ${payload.id}`);
-      return new Response();
-    }
-  }
+  // Cancelled/refunded/voided orders have no inventory impact worth
+  // tracking as "usage" — treat as zero line items so a prior recorded
+  // quantity gets subtracted back out via the delta logic.
+  const financialStatus = payload?.financial_status;
+  const isVoid =
+    !!payload?.cancelled_at ||
+    financialStatus === "refunded" ||
+    financialStatus === "voided";
 
-  const lineItems = (payload?.line_items ?? []).map((item) => ({
-    sku: item.sku,
-    quantity: item.quantity,
-  }));
+  const lineItems = isVoid
+    ? []
+    : (payload?.line_items ?? []).map((item) => ({
+        sku: item.sku,
+        quantity: item.quantity,
+      }));
 
-  if (lineItems.length > 0) {
-    await recordOrderUsage(shop, lineItems);
-    console.log(`Recorded usage for ${lineItems.length} SKUs from order ${payload.id}`);
-  }
+  await recordOrderUsage(shop, String(payload.id), new Date(payload.created_at), lineItems);
+  console.log(
+    `Reconciled usage for order ${payload.id} (${lineItems.length} line items, void=${isVoid})`,
+  );
 
   return new Response();
 };

@@ -1,2 +1,8 @@
 node_modules
 .env
+build/
+*.sqlite
+*.sqlite-journal
+.shopify/
+.shopifyapp/
+.claude/settings.local.json

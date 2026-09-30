@@ -8,44 +8,36 @@ import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prism
 import prisma from "./db.server.js";
 
 /**
- * TOKEN LIFECYCLE NOTES (relevant to the Jan 1, 2027 migration niche):
+ * TOKEN LIFECYCLE:
  *
- * - @shopify/shopify-app-remix v3.7+ requests EXPIRING offline access
- *   tokens automatically for new installs. You don't need to do anything
- *   extra for a brand-new app like this one.
+ * `expiringOfflineAccessTokens: true` (below) opts into Shopify's expiring
+ * offline access tokens: the offline token is valid for 60 minutes, and
+ * @shopify/shopify-app-remix (v4.1+) automatically refreshes it using the
+ * single-use refresh token stored alongside it, persisting the new
+ * refresh token it gets back. This is required for all public apps —
+ * Shopify starts rejecting non-expiring offline tokens on Jan 1, 2027.
  *
- * - An expiring offline access token is valid for 60 minutes. Alongside it,
- *   Shopify returns a refresh_token valid for 90 days.
- *
- * - The refresh token is SINGLE-USE: every time you redeem it for a new
- *   access token, Shopify returns a NEW refresh token too. You must persist
- *   the new refresh token immediately or the next refresh will fail.
- *
- * - Session storage (below, via Prisma) must store both the access token
- *   and refresh token, plus their expiry, and refresh proactively before
- *   expiry in any background job / webhook handler that calls the Admin API
- *   outside of a live user request.
- *
- * - If you're retrofitting this pattern onto an EXISTING pre-migration app
- *   that still has non-expiring tokens stored: those old tokens keep working
- *   until Jan 1, 2027, but every merchant needs to trigger a fresh OAuth
- *   grant (re-auth) before then to receive an expiring token + refresh
- *   token pair. Plan a re-auth prompt / banner in the app admin UI well
- *   before the deadline — this is the actual engineering work in a
- *   migration engagement, not just a config flag.
+ * The Session model (prisma/schema.prisma) has `refreshToken` and
+ * `refreshTokenExpires` columns for this — required by
+ * @shopify/shopify-app-session-storage-prisma for expiring-token support.
+ * Nothing else needs to change: refresh happens transparently inside
+ * `authenticate.admin`, `authenticate.webhook`, and `unauthenticated.admin`
+ * whenever the stored token is expired or expiring within 5 minutes.
  */
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  apiVersion: ApiVersion.January25,
+  apiVersion: ApiVersion.October26,
   scopes: process.env.SCOPES?.split(","),
-  appUrl: process.env.SHOPIFY_APP_URL,
+  // `shopify app dev` injects the live tunnel URL as APP_URL, not SHOPIFY_APP_URL.
+  appUrl: process.env.SHOPIFY_APP_URL || process.env.APP_URL,
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
   future: {
     unstable_newEmbeddedAuthStrategy: true,
+    expiringOfflineAccessTokens: true,
   },
 });
 

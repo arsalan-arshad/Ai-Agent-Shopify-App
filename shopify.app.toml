@@ -1,19 +1,41 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
+client_id = "46f2f939270873df79eb678079520ad2"
 name = "ai-forecast-agent"
 application_url = "https://geek-yield-browser-asbestos.trycloudflare.com"
 embedded = true
-client_id = ""
-
-[build]
-automatically_update_urls_on_dev = true
 
 [webhooks]
 api_version = "2026-10"
 
+  [[webhooks.subscriptions]]
+  topics = ["orders/create", "orders/updated"]
+  uri = "/webhooks/orders-updated"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request"]
+  uri = "/webhooks/customers/data_request"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/redact"]
+  uri = "/webhooks/customers/redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["shop/redact"]
+  uri = "/webhooks/shop/redact"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders,read_products,read_inventory,read_locations"
+scopes = "read_inventory,read_locations,read_orders,read_products"
 
 [auth]
-redirect_urls = [ "https://geek-yield-browser-asbestos.trycloudflare.com/auth/callback" ]
+redirect_urls = [
+  "https://geek-yield-browser-asbestos.trycloudflare.com/auth/callback"
+]
+
+[build]
+automatically_update_urls_on_dev = true

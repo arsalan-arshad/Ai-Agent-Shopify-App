@@ -1,11 +1,12 @@
 import { vitePlugin as remix } from "@remix-run/dev";
 import { installGlobals } from "@remix-run/node";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 
 installGlobals();
 
-const host = new URL(process.env.SHOPIFY_APP_URL || "http://localhost").hostname;
+const host = new URL(
+  process.env.SHOPIFY_APP_URL || process.env.APP_URL || "http://localhost",
+).hostname;
 
 let hmrConfig;
 if (host === "localhost") {
@@ -38,7 +39,9 @@ export default defineConfig({
       "~": new URL("./app", import.meta.url).pathname,
     },
   },
-  plugins: [remix(), react()],
+  // Don't add @vitejs/plugin-react here: the Remix plugin already injects
+  // React Refresh, and a second copy breaks client hydration.
+  plugins: [remix()],
   build: {
     assetsInlineLimit: 0,
   },

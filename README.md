@@ -1,107 +1,101 @@
-# AI Forecast Agent — Shopify App Scaffold
+# AI Forecast Agent
 
-An inventory & demand forecasting app for Shopify merchants, with a
-conversational AI agent layer on top of a deterministic forecasting engine.
+An embedded Shopify app that forecasts per-SKU inventory demand and tells
+merchants when to reorder. A deterministic engine does the math; a
+conversational AI agent explains it and never invents numbers.
 
 **Why this and not another inventory app**: most "AI" apps on the Shopify
-App Store are support chatbots. This one uses the agent to *explain and
-reason over* real reorder-point math (see `app/lib/forecasting.js`) —
-the agent never invents numbers, it interprets them. That combination
+App Store are support chatbots bolted onto a dashboard. This one uses the
+agent to *explain and reason over* real reorder-point math (see
+`app/lib/forecasting.js`) — the agent is grounded in a snapshot the
+deterministic engine computed and refuses to answer outside it. That split
 (auditable math + conversational interface) is the differentiator.
 
-## What's in this scaffold
+## Stack
+
+Remix 2 (Vite) · React 18 · Polaris 13 · App Bridge 4 (via the raw
+`app-bridge.js` script tag + `<ui-nav-menu>`, not `@shopify/app-bridge-react`'s
+provider) · `@shopify/shopify-app-remix` 6 · Prisma 6 (SQLite in dev,
+Postgres in production) · Node >= 20.19 (tested on 22).
+
+## AI providers — bring your own key
+
+There is **no shared or trial AI key**. Each merchant adds their own
+Google Gemini or Anthropic Claude API key from the in-app **Settings**
+page (`app/routes/app.settings.jsx`); it's encrypted at rest
+(`app/lib/crypto.server.js`, AES-256-GCM, key from `ENCRYPTION_KEY`) and
+decrypted only server-side to call their chosen provider
+(`app/lib/ai-agent.js`). Until a merchant adds a key, the forecast table
+and reorder math work as normal (they're deterministic, not AI) but the
+chat panel shows a prompt to set one up instead of calling anything.
+Per-question token counts and an estimated cost are logged to
+`AiUsageLog` and shown on the Settings page — that's an estimate for the
+merchant's own visibility, not a bill; they're charged by their provider
+directly.
+
+## Data model (`prisma/schema.prisma`)
+
+- `Session` — required by `PrismaSessionStorage`; includes `refreshToken`
+  / `refreshTokenExpires` for expiring offline access tokens (Shopify
+  requires these for all public apps as of Jan 1, 2027).
+- `DailyUsage` — one row per SKU per day per shop, populated by the
+  `orders/updated`/`orders/create` webhook and by the install-time
+  backfill. No customer-identifying fields.
+- `ProcessedOrder` — last recorded line-item snapshot per order, so the
+  webhook (which can fire many times per order) only applies the delta
+  instead of re-adding the full quantity each time.
+- `LeadTimeSetting` — per-SKU or shop-wide reorder lead time, editable
+  from Settings.
+- `ShopAiSettings` — a shop's chosen provider + encrypted API key.
+- `AiUsageLog` — one row per AI chat call, for the usage panel and for
+  basic per-shop rate limiting.
+
+## Key files
 
 - `app/lib/forecasting.js` — weighted moving average, reorder point,
-  days-of-cover, and status classification. Pure functions, unit-testable,
-  no external dependencies. This is the credible, defensible core.
-- `app/lib/ai-agent.js` — Claude API wrapper. Grounds every answer in the
-  forecast snapshot; refuses to invent numbers not in the data.
-- `app/lib/shopify.server.js` — Shopify API client setup, with inline notes
-  on the offline-token expiry/refresh lifecycle (relevant if you reuse this
-  for token-migration client work — see notes in the file).
-  Currently `read`-only scopes — see `shopify.app.toml`. Add write
-  scopes when you build auto-reorder actions.
-- `app/routes/app._index.jsx` — main dashboard (Polaris UI): forecast table
-  + agent chat panel.
-- `app/routes/api.agent-chat.jsx` — API route the chat panel calls.
-- `app/routes/webhooks.orders-updated.jsx` — webhook stub for keeping
-  usage data fresh; where the real per-SKU history aggregation needs to
-  be built out.
-- `app/graphql/queries.js` — Admin GraphQL queries for orders & inventory.
+  days-of-cover, status classification. Pure, deterministic, no
+  dependencies — keep it that way.
+- `app/lib/forecast-snapshot.server.js` — the one place the forecast
+  snapshot gets built from live Admin API + DB data (paginated,
+  multi-location aware). Both the dashboard and the chat endpoint call
+  this instead of trusting client-supplied data.
+- `app/lib/ai-agent.js` — Gemini/Claude provider abstraction, grounded in
+  the forecast snapshot, logs usage.
+- `app/lib/ai-settings.server.js` / `crypto.server.js` / `ai-pricing.js` —
+  BYOK storage, encryption, and cost estimation.
+- `app/lib/usage-history.server.js` — DailyUsage/LeadTimeSetting queries
+  and the idempotent `recordOrderUsage`.
+- `app/routes/app._index.jsx` — dashboard: forecast table + chat.
+- `app/routes/app.settings.jsx` — AI provider key, usage, lead times.
+- `app/routes/webhooks.*` — order usage tracking + the mandatory
+  compliance webhooks (`customers/data_request`, `customers/redact`,
+  `shop/redact`, `app/uninstalled`).
 
-## What's now real (as of the last update)
-
-- **Prisma schema** (`prisma/schema.prisma`): `Session` (required by
-  `PrismaSessionStorage`), `DailyUsage` (real per-SKU-per-day sales,
-  replacing the old placeholder array), and `LeadTimeSetting` (per-SKU
-  or shop-wide lead time, no longer a single hardcoded constant).
-- **Usage aggregation** (`app/lib/usage-history.server.js`): the webhook
-  handler now calls `recordOrderUsage` on every order, and the dashboard
-  loader queries real 30-day history via `getUsageHistory` instead of a
-  placeholder array.
-- **Historical backfill** (`app/lib/backfill.server.js`): seeds
-  `DailyUsage` from existing orders on install, so a freshly installed
-  app isn't forecasting off zero data for its first month. Not yet wired
-  to an actual trigger point (see "Still stubbed" below) — the function
-  is ready, it just needs to be called from somewhere.
-
-## What's intentionally stubbed (your next steps)
-
-1. **Trigger the backfill**: `backfillUsageHistory()` exists but nothing
-   calls it yet. Wire it to fire once after OAuth completes on install —
-   easiest spot is a check in the `app._index` loader ("if
-   `getTrackedSkus(shop)` is empty, kick off backfill") or a dedicated
-   `afterAuth` hook if you're using `@shopify/shopify-app-remix`'s hook
-   system.
-2. **Webhook double-counting**: flagged inline in
-   `webhooks.orders-updated.jsx` — `orders/updated` fires on edits and
-   refunds too, not just new sales, and this v1 doesn't yet distinguish
-   those from genuine new line items. Low risk in a demo, worth fixing
-   before any real merchant relies on the numbers.
-3. **Auth/session routes**: the official Shopify Remix template generates
-   `app/routes/auth.$.jsx`, `app/routes/app.jsx` (layout with App Bridge),
-   and `app/entry.server.jsx`. Fastest path: run
-   `npm create @shopify/app@latest -- --template remix` in a separate
-   folder and merge these custom files in, rather than hand-writing
-   Shopify's boilerplate.
-4. **Lead time per SKU**: currently a single global constant
-   (`DEFAULT_LEAD_TIME_DAYS`). Real merchants have different lead times
-   per supplier/SKU — worth a settings page early.
-
-## Setup (on your own machine, not in this sandbox)
+## Local setup
 
 ```bash
-# 1. Scaffold Shopify's own boilerplate first (auth routes, App Bridge, etc.)
-npm create @shopify/app@latest -- --template remix
-# then copy app/lib, app/graphql, and the two custom routes from this
-# scaffold into the generated project, merging package.json dependencies.
-
-# 2. Install dependencies
 npm install
-
-# 3. Set up Prisma
-npx prisma init --datasource-provider sqlite
-npx prisma migrate dev --name init
-
-# 4. Copy env template and fill in credentials
-cp .env.example .env
-# — Get SHOPIFY_API_KEY / SECRET from partners.shopify.com (create an app)
-# — Get ANTHROPIC_API_KEY from console.anthropic.com
-
-# 5. Run against a dev store
-shopify app dev
+cp .env.example .env        # fill in real values, see comments in the file
+npx prisma migrate dev       # creates prisma/dev.sqlite locally
+shopify app config link      # one-time: link to your Partner app
+npm run dev                  # shopify app dev — installs to a dev store, opens a tunnel
 ```
 
-You'll need a **Shopify Partner account** (free) and a **development
-store** (free, from the Partner Dashboard) to actually install and test
-this — neither of those can be created from inside this chat, they're
-account-level steps on Shopify's side.
+You'll need a free **Shopify Partner account** and a free **development
+store** from the Partner Dashboard — both are account-level steps on
+Shopify's side, not something this repo can do for you.
 
-## Roadmap after the MVP works
+## Known gaps / roadmap
 
-- Settings page: per-SKU/per-supplier lead time, service-level target
-- Daily digest via email or Slack (reuse `generateDailyDigest`)
-- Auto-draft purchase orders for `reorder_now` SKUs (needs `write_inventory`
-  scope — bigger app-review bar, add once the read-only version is proven)
-- Multi-location inventory awareness (the GraphQL query already pulls
-  per-location quantities — just not surfaced in the UI yet)
+- **Production hosting**: `application_url` is currently a temporary
+  `trycloudflare.com` tunnel. Needs a stable HTTPS host (Fly.io, Render,
+  Railway, etc.) before submitting for review.
+- **Postgres**: `prisma/schema.prisma`'s datasource is SQLite for local
+  dev; switch `provider` to `"postgresql"` and point `DATABASE_URL` at a
+  real instance for production — SQLite doesn't work across multiple
+  server instances.
+- **Daily digest**: `generateDailyDigest` (`ai-agent.js`) exists but isn't
+  wired to a schedule/email yet.
+- **Auto-draft purchase orders**: would need a `write_inventory` (or
+  similar) scope — bigger App Store review bar, worth adding once the
+  read-only version is proven.

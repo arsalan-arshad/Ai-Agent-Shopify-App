@@ -1,236 +1,95 @@
-# Shopify AI Forecast App - Setup Guide
+# Setup Guide
 
-Your app is now fully scaffolded with Shopify's official auth system and your custom forecasting logic. Here's what's been done and what you need to do next.
+Architecture and file overview live in `README.md` — this is just the
+step-by-step to get a working install on a real Partner org + dev store.
+(Superseded: this used to describe an Anthropic-Claude-only, SQLite-forever
+scaffold with an unfixed webhook double-counting bug. All three are now
+addressed — see README's "Known gaps" for what's actually still open.)
 
-## ✅ What's Been Completed
+## 1. Shopify Partner account + app record
 
-### 1. **Official Shopify Remix Scaffold** ✅
-- Created auth routes: `/auth/login` → `/auth/callback`
-- Added app layout protection (`app.jsx`) — all `app/*` routes require authentication
-- Set up App Bridge entry files (`entry.server.tsx`, `entry.client.tsx`)
-- Configured Remix (`remix.config.js`) and Vite (`vite.config.ts`)
+1. Go to [partners.shopify.com](https://partners.shopify.com) and create a
+   free Partner account if you don't have one.
+2. From the Partner Dashboard, create an app (or use an existing one) —
+   this app expects **public/App Store distribution**
+   (`AppDistribution.AppStore` in `app/lib/shopify.server.js`).
+3. From the repo root: `npm run config:link` (`shopify app config link`).
+   This writes a real `client_id` into `shopify.app.toml` and lets you
+   pick which Partner app this repo is linked to.
 
-### 2. **Custom Business Logic Merged** ✅
-- **Forecasting**: `app/lib/forecasting.js` — reorder point calculation
-- **AI Agent**: `app/lib/ai-agent.js` — Claude API integration
-- **Usage Tracking**: `app/lib/usage-history.server.js` — DailyUsage table queries
-- **Backfill**: `app/lib/backfill.server.js` — seeds historical data on first install
-- **Routes**:
-  - `app/routes/app._index.jsx` — Main dashboard with backfill trigger
-  - `app/routes/api.agent-chat.jsx` — AI agent endpoint
-  - `app/routes/webhooks.orders-updated.jsx` — Order tracking (fixed double-counting)
+## 2. Development store
 
-### 3. **Webhook Double-Counting Fixed** ✅
-- Added `financial_status` check: skips refunded/voided orders
-- Only records on `orders/create` or valid `orders/updated` events
-- Logs each action for debugging
+From the Partner Dashboard, create a free development store (or reuse one
+you already have). `shopify app dev` will prompt you to pick one the
+first time you run it.
 
-### 4. **Database** ✅
-- Prisma migration created and applied
-- SQLite database initialized (`dev.sqlite`)
-- Schema includes: `Session`, `DailyUsage`, `LeadTimeSetting`
+## 3. Environment
 
-### 5. **Dependencies Updated** ✅
-- Added `@vitejs/plugin-react` and `typescript` to devDependencies
-- All custom deps included (`@anthropic-ai/sdk`, `@shopify/polaris`, etc.)
+```bash
+cp .env.example .env
+```
 
-### 6. **Environment Setup** ✅
-- `.env` file created with detailed instructions for each variable
+Fill in from the Partner Dashboard's app **Configuration → Client
+credentials**:
+```
+SHOPIFY_API_KEY=<Client ID>
+SHOPIFY_API_SECRET=<Client secret>
+```
 
----
+Generate an encryption key for merchant-supplied AI API keys:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+paste the result into `ENCRYPTION_KEY`.
 
-## 🔧 What You Need to Do Next
+Leave `SHOPIFY_APP_URL` blank for local dev — `shopify app dev` sets it
+to a temporary tunnel URL automatically and updates `shopify.app.toml`'s
+`application_url`/`redirect_urls` for you (`automatically_update_urls_on_dev`).
 
-### **Step 1: Get Shopify App Credentials** (5 min)
+`DATABASE_URL` can stay as the default SQLite path for local dev.
 
-1. Go to **[Shopify Partner Dashboard](https://partners.shopify.com)**
-2. Click **"Apps and sales channel apps"** → find/create your app `ai-forecast-agent`
-3. Go to **Configuration** → scroll to **"Admin API credentials"**
-4. Copy `Client ID` and `Client secret` into `.env`:
-   ```
-   SHOPIFY_API_KEY=<Client ID>
-   SHOPIFY_API_SECRET=<Client secret>
-   ```
+## 4. Database
 
-### **Step 2: Get Anthropic Claude API Key** (2 min)
+```bash
+npx prisma generate
+npx prisma migrate dev
+```
 
-1. Go to **[Anthropic Console](https://console.anthropic.com)**
-2. Click **"API Keys"** in the sidebar → **"Create Key"**
-3. Copy the key into `.env`:
-   ```
-   ANTHROPIC_API_KEY=<your_api_key>
-   ```
-
-### **Step 3: Start Development Server** (1 min)
-
-Run the Shopify CLI development server:
+## 5. Run it
 
 ```bash
 npm run dev
 ```
 
-This will:
-1. Compile your Remix app with Vite
-2. Start a local tunnel (Cloudflare) — you'll see a URL like `https://abc-123-def.trycloudflare.com`
-3. **Copy that URL into `.env`**:
-   ```
-   SHOPIFY_APP_URL=https://abc-123-def.trycloudflare.com
-   ```
+This starts the Vite dev server, opens a Cloudflare tunnel, and prompts
+you to select the dev store to install into. Once it's running, open the
+printed preview URL (or find the app under **Apps** in the dev store's
+Shopify admin).
 
-### **Step 4: Link to Your Development Store**
+**First install**: the dashboard loader backfills historical order data
+in the background on first load (up to 10 pages of recent orders) — the
+forecast table fills in within a minute or two rather than starting from
+zero. Check the terminal logs to see progress.
 
-When you run `npm run dev`, the Shopify CLI will prompt you:
-- **"Which shop are you installing to?"** → Create or select a **development store**
-- The app will install automatically into that store
+**AI chat**: the dashboard's chat panel will prompt you to add a Gemini
+or Claude API key — that's expected, there's no shared/trial key (see
+README). Add one from **Settings** in the app nav.
 
-### **Step 5: Access the App**
+## 6. Testing webhooks locally
 
-1. Go to your **Shopify Admin Dashboard** (admin.shopify.com) for your dev store
-2. In the left sidebar, find **"Apps and sales channel apps"** → click **"App name"** (ai-forecast-agent)
-3. You'll see your dashboard with:
-   - Inventory forecast table (currently empty if it's the first install)
-   - AI agent chatbox
-
-**First install**: The app automatically backfills historical order data in the background (up to 10 pages). Check the browser console or terminal logs to see progress.
-
----
-
-## 📋 File Structure Overview
-
+`shopify app dev` forwards live webhook deliveries from your dev store
+through the tunnel automatically — placing a real order (or editing one)
+in the dev store admin should trigger `webhooks.orders-updated.jsx`. To
+fire a webhook manually without a real order, use:
+```bash
+shopify app webhook trigger
 ```
-app/
-├── entry.client.tsx          # Client-side Remix entry (React hydration)
-├── entry.server.tsx          # Server-side Remix entry (SSR)
-├── root.jsx                  # Root layout (App Bridge + Polaris provider)
-├── lib/
-│   ├── shopify.server.js     # Shopify app auth setup
-│   ├── db.server.js          # Prisma client
-│   ├── forecasting.js        # Reorder point logic
-│   ├── ai-agent.js           # Claude API integration
-│   ├── usage-history.server.js
-│   └── backfill.server.js    # Historical data seeding
-├── graphql/
-│   └── queries.js            # Inventory GraphQL queries
-└── routes/
-    ├── auth.login.jsx        # OAuth login route
-    ├── auth.callback.jsx     # OAuth callback route
-    ├── app.jsx               # Protected app layout
-    ├── app._index.jsx        # Main dashboard (with backfill trigger)
-    ├── api.agent-chat.jsx    # AI agent endpoint
-    └── webhooks.orders-updated.jsx
+and pick a topic (e.g. `orders/updated`, `customers/redact`) from the
+list `shopify.app.toml` declares.
 
-prisma/
-├── schema.prisma             # Database schema
-└── migrations/
+## 7. Before submitting for review
 
-.env                          # Environment variables (UPDATE THIS)
-shopify.app.toml             # App metadata (pre-filled)
-remix.config.js              # Remix config
-vite.config.ts               # Vite build config
-package.json                 # Dependencies
-```
-
----
-
-## 🚀 Key Features Wired Up
-
-### **Automatic Backfill on First Install**
-- When a merchant installs the app, `app/routes/app._index.jsx` detects zero usage history
-- Triggers `backfillUsageHistory()` → pulls last 10 pages of orders
-- Populates `DailyUsage` table in the background
-- Merchant sees a mature forecast on day one
-
-### **Continuous Webhook Tracking**
-- `orders/create` and `orders/updated` webhooks populate `DailyUsage` daily
-- Double-counting fixed: checks `financial_status` before recording
-- Persists in SQLite database
-
-### **Accurate Forecasting**
-- Calculates **average daily usage** from 30-day history
-- Computes **reorder point** using lead time
-- Shows **days of cover** = current stock / avg daily usage
-- Status badge: "reorder now" / "reorder soon" / "healthy" / "no recent sales"
-
-### **AI Agent Integration**
-- Merchant asks questions (e.g., "What should I reorder?")
-- Uses Claude to analyze the forecast snapshot
-- Returns natural language insights
-
----
-
-## ⚠️ Important Notes
-
-### Token Migration (Jan 1, 2027)
-- This app uses **expiring offline access tokens** (60 min lifetime)
-- Shopify automatically provides a **refresh token** (90 days)
-- Session storage in Prisma handles refresh automatically
-- No action needed for new installs; see `app/lib/shopify.server.js` for retrofit guidance
-
-### Production Deployment
-- **Database**: Switch from SQLite to PostgreSQL in `.env`:
-  ```
-  DATABASE_URL="postgresql://user:password@host/dbname"
-  ```
-- **Backfill**: Move from fire-and-forget to a real job queue (Bull, Inngest, etc.)
-- **Security**: Use a secrets manager for `SHOPIFY_API_SECRET` and `ANTHROPIC_API_KEY`
-
-### Testing Webhooks Locally
-- `shopify app dev` automatically sets up webhook subscriptions
-- Check "Orders" in your dev store — place test orders to trigger webhooks
-- Monitor logs: `npm run dev` shows webhook delivery logs
-
----
-
-## 🐛 Troubleshooting
-
-### **"App not found" when trying to install**
-- Make sure you filled in `SHOPIFY_API_KEY` in `.env`
-- Verify the app exists in Partner Dashboard
-- Restart `npm run dev`
-
-### **No forecast data showing**
-- **First install**: Backfill is running in background — wait 30 sec and refresh
-- Check browser console or terminal for backfill errors
-- Make sure your dev store has orders
-
-### **"Database locked" errors**
-- SQLite can have concurrency issues with multiple processes
-- Try restarting: `npm run dev`
-- For production, use PostgreSQL
-
-### **Webhook not firing**
-- Check that `orders/create` and `orders/updated` are subscribed in `shopify.app.toml`
-- Place a test order in dev store admin
-- Monitor logs for webhook delivery
-
----
-
-## 📚 Next Steps
-
-1. ✅ Fill in `.env` with Shopify + Anthropic credentials
-2. ✅ Run `npm run dev`
-3. ✅ Install app into dev store
-4. ✅ Place a test order to trigger webhooks
-5. ✅ See forecast data populate
-6. ✅ Ask the AI agent a question
-
-**Questions?** Check:
-- [Shopify App Remix Docs](https://shopify.dev/docs/api/admin-rest/2024-01)
-- [Polaris Component Library](https://shopify.dev/docs/api/polaris)
-- [Anthropic Claude API Docs](https://docs.anthropic.com/)
-
----
-
-## Summary of Changes Made
-
-| Step | Status | Details |
-|------|--------|---------|
-| 1. Scaffold official Remix template | ✅ | Auth routes, app layout, entry files |
-| 2. Merge custom files | ✅ | Forecasting, AI agent, usage tracking |
-| 3. Fix webhook double-counting | ✅ | Added financial_status + logging checks |
-| 4. Wire backfill on first install | ✅ | app._index.jsx triggers if no usage history |
-| 5. Setup Prisma | ✅ | Migration created, dev.sqlite initialized |
-| 6. Create .env with instructions | ✅ | Detailed comments for each variable |
-| 7. Update dependencies | ✅ | Added Vite React plugin, TypeScript |
-
-You're ready to start developing! 🚀
+See README's "Known gaps" section and the project's publishing checklist
+(hosting, Postgres, privacy policy, listing assets, billing). Don't run
+`shopify app deploy` or submit from the Partner Dashboard without
+double-checking those first.

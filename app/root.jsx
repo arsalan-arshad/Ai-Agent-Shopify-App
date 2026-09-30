@@ -11,30 +11,23 @@ import {
 } from "@remix-run/react";
 import { AppProvider } from "@shopify/polaris";
 import "@shopify/polaris/build/esm/styles.css";
-import { authenticate } from "./lib/shopify.server";
 
 /**
- * Root loader: initialize session and pass API key to client for App Bridge.
- * Unauthenticated routes (like /auth/login) skip this via the authenticate.unauthenticated() path.
+ * Root loader intentionally does NOT call authenticate.admin(). This route
+ * runs for every request in the tree, including /auth/* routes — gating it
+ * here as well as in app.jsx (the actual protected layout) is redundant,
+ * and worse, wrapping authenticate.admin() in try/catch (as a previous
+ * version of this file did) silently swallows the Response it throws to
+ * trigger an OAuth/exit-iframe redirect. Auth belongs to app.jsx and any
+ * other route that actually needs a session; root just needs the API key
+ * for the App Bridge script tag below.
  */
-export const loader = async ({ request }) => {
-  try {
-    const { session } = await authenticate.admin(request);
-    return json({
-      apiKey: process.env.SHOPIFY_API_KEY,
-      shop: session?.shop,
-    });
-  } catch {
-    // Unauthenticated route; no session available
-    return json({
-      apiKey: process.env.SHOPIFY_API_KEY,
-      shop: null,
-    });
-  }
+export const loader = async () => {
+  return json({ apiKey: process.env.SHOPIFY_API_KEY });
 };
 
 export default function App() {
-  const { apiKey, shop } = useLoaderData();
+  const { apiKey } = useLoaderData();
 
   return (
     <html>

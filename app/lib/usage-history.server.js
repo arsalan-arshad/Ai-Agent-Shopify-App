@@ -1,38 +1,69 @@
 import prisma from "./db.server.js";
 
 /**
- * Increments today's usage counters for whatever SKUs appear in an
- * order's line items. Called from the orders webhook handler.
+ * Records (or re-reconciles) usage for one order's line items, keyed by
+ * order ID so repeated/edited orders/updated deliveries don't double-count.
  *
- * Idempotency note: Shopify can and does redeliver webhooks. We don't
- * currently de-dupe by order ID here — for a v1 this is an acceptable
- * risk (occasional double-count on redelivery, self-corrects over time
- * as more days of data accumulate), but if you're shipping this for
- * real, add an OrderProcessed(shop, orderId) table and check it before
- * incrementing.
+ * Shopify redelivers webhooks, and orders/updated fires on nearly any edit
+ * to an order (address change, note, tag, fulfillment, line-item quantity
+ * change, etc.) — not just ones that actually change what was sold. Naively
+ * re-adding the full line-item quantities on every delivery inflates
+ * DailyUsage without bound.
+ *
+ * Fix: ProcessedOrder stores the last { sku: quantity } snapshot we
+ * recorded for this order. Each call computes the delta between that
+ * snapshot and the current line items and applies only the delta to
+ * DailyUsage (which can be negative, e.g. a line item's quantity was
+ * reduced or removed). A delivery with unchanged line items is a no-op.
+ *
+ * Usage is attributed to the order's creation date (not "today" the
+ * webhook happened to fire), which is what the forecasting math and the
+ * backfill importer (backfill.server.js) both expect.
  */
-export async function recordOrderUsage(shop, lineItems) {
-  const today = startOfDay(new Date());
+export async function recordOrderUsage(shop, orderId, orderDate, lineItems) {
+  const date = startOfDay(orderDate);
 
+  // Aggregate line items by SKU (an order can have multiple line items
+  // for the same SKU) and drop items with no SKU (bundles, tips, etc.)
+  const currentMap = {};
   for (const item of lineItems) {
-    const sku = item.sku;
-    if (!sku) continue; // skip line items with no SKU (bundles, tips, etc.)
-
-    await prisma.dailyUsage.upsert({
-      where: {
-        shop_sku_date: { shop, sku, date: today },
-      },
-      update: {
-        quantity: { increment: item.quantity },
-      },
-      create: {
-        shop,
-        sku,
-        date: today,
-        quantity: item.quantity,
-      },
-    });
+    if (!item.sku) continue;
+    currentMap[item.sku] = (currentMap[item.sku] ?? 0) + (item.quantity ?? 0);
   }
+
+  const previous = await prisma.processedOrder.findUnique({
+    where: { shop_order: { shop, orderId } },
+  });
+  const previousMap = previous?.lineItems ?? {};
+
+  const skus = new Set([...Object.keys(currentMap), ...Object.keys(previousMap)]);
+  const deltas = [];
+  for (const sku of skus) {
+    const delta = (currentMap[sku] ?? 0) - (previousMap[sku] ?? 0);
+    if (delta !== 0) deltas.push({ sku, delta });
+  }
+
+  if (deltas.length === 0 && previous) {
+    // Nothing changed since the last delivery for this order — no-op.
+    return;
+  }
+
+  await prisma.$transaction([
+    ...deltas.map(({ sku, delta }) =>
+      prisma.dailyUsage.upsert({
+        where: { shop_sku_date: { shop, sku, date } },
+        update: { quantity: { increment: delta } },
+        // If this is a net-negative delta with no existing row (shouldn't
+        // normally happen), clamp at 0 rather than creating a negative count.
+        create: { shop, sku, date, quantity: Math.max(delta, 0) },
+      }),
+    ),
+    prisma.processedOrder.upsert({
+      where: { shop_order: { shop, orderId } },
+      update: { date, lineItems: currentMap },
+      create: { shop, orderId, date, lineItems: currentMap },
+    }),
+  ]);
 }
 
 /**
@@ -83,7 +114,7 @@ export async function getTrackedSkus(shop) {
 /**
  * Per-SKU lead time, falling back to the shop-wide default, falling
  * back to a hardcoded 14 days if the merchant hasn't configured
- * anything yet (see the settings-page TODO in the README).
+ * anything yet.
  */
 export async function getLeadTimeDays(shop, sku) {
   const skuSetting = await prisma.leadTimeSetting.findUnique({
@@ -97,6 +128,25 @@ export async function getLeadTimeDays(shop, sku) {
   if (shopDefault) return shopDefault.leadTimeDays;
 
   return 14;
+}
+
+/**
+ * Upserts a lead-time setting (shop-wide when sku is null, per-SKU
+ * otherwise). Used by the Settings page (app.settings.jsx).
+ */
+export async function setLeadTimeDays(shop, sku, leadTimeDays, supplierName = null) {
+  return prisma.leadTimeSetting.upsert({
+    where: { shop_sku_leadtime: { shop, sku: sku ?? null } },
+    update: { leadTimeDays, supplierName },
+    create: { shop, sku: sku ?? null, leadTimeDays, supplierName },
+  });
+}
+
+export async function listLeadTimeSettings(shop) {
+  return prisma.leadTimeSetting.findMany({
+    where: { shop },
+    orderBy: [{ sku: "asc" }],
+  });
 }
 
 function startOfDay(date) {

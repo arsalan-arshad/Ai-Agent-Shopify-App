@@ -13,27 +13,35 @@ datasource db {
 /// Required by @shopify/shopify-app-session-storage-prisma.
 /// Field names/types below match what that package expects exactly —
 /// don't rename these or session storage breaks silently.
+/// refreshToken / refreshTokenExpires are required for expiring offline
+/// access tokens (future.expiringOfflineAccessTokens in shopify.server.js) —
+/// Shopify rejects non-expiring offline tokens starting Jan 1, 2027.
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+
+  @@index([shop])
 }
 
 /// One row per SKU per day per shop. This is what replaces the
 /// placeholder history array in app/routes/app._index.jsx.
-/// Populated by the orders webhook handler (app/routes/webhooks.orders-updated.jsx).
+/// Populated by the orders webhook handler (app/routes/webhooks.orders-updated.jsx),
+/// keyed off ProcessedOrder for idempotency (see below).
 model DailyUsage {
   id        Int      @id @default(autoincrement())
   shop      String
@@ -45,6 +53,23 @@ model DailyUsage {
 
   @@unique([shop, sku, date], name: "shop_sku_date")
   @@index([shop, sku])
+}
+
+/// Tracks the last set of line-item quantities we recorded for a given
+/// order, so the orders/updated webhook (which can fire many times for
+/// the same order — edits, redelivery, fulfillment changes) can apply
+/// only the DELTA to DailyUsage instead of re-adding the full quantity
+/// every time. This is what makes recordOrderUsage idempotent.
+model ProcessedOrder {
+  id         Int      @id @default(autoincrement())
+  shop       String
+  orderId    String
+  date       DateTime // day the order was created, used as DailyUsage's date key
+  lineItems  Json // { [sku]: quantity } snapshot of what we last recorded
+  updatedAt  DateTime @updatedAt
+
+  @@unique([shop, orderId], name: "shop_order")
+  @@index([shop])
 }
 
 /// Per-SKU or per-supplier lead time override, since a single global
@@ -59,4 +84,36 @@ model LeadTimeSetting {
   updatedAt    DateTime @updatedAt
 
   @@unique([shop, sku], name: "shop_sku_leadtime")
+}
+
+/// Merchant-owned AI provider settings. The API key is encrypted at rest
+/// (see app/lib/crypto.server.js) with ENCRYPTION_KEY — the app never has
+/// a shared/fallback key, so if this row doesn't exist for a shop, the
+/// chat UI shows a setup prompt instead of calling any provider.
+model ShopAiSettings {
+  id                 Int      @id @default(autoincrement())
+  shop               String   @unique
+  provider           String // "gemini" | "claude"
+  encryptedApiKey    String // ciphertext, see crypto.server.js
+  apiKeyLast4        String // last 4 chars shown in the UI so merchants can tell keys apart; never the full key
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+/// One row per AI chat call, for the merchant-facing usage/cost dashboard
+/// (Settings page) and for per-shop rate limiting. Cost is an estimate
+/// only (see app/lib/ai-pricing.js) — merchants are billed by their own
+/// Gemini/Claude account, not by us.
+model AiUsageLog {
+  id               Int      @id @default(autoincrement())
+  shop             String
+  provider         String // "gemini" | "claude"
+  model            String
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  estimatedCostUsd Float    @default(0)
+  ok               Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([shop, createdAt])
 }
