@@ -94,8 +94,8 @@ Shopify's side, not something this repo can do for you.
   dev; switch `provider` to `"postgresql"` and point `DATABASE_URL` at a
   real instance for production — SQLite doesn't work across multiple
   server instances.
-- **Daily digest**: `generateDailyDigest` (`ai-agent.js`) exists but isn't
-  wired to a schedule/email yet.
+- **Daily digest**: not built yet — would call `askForecastAgent`
+  (`ai-agent.js`) on a schedule and send the summary by email/Slack.
 - **Auto-draft purchase orders**: would need a `write_inventory` (or
   similar) scope — bigger App Store review bar, worth adding once the
   read-only version is proven.

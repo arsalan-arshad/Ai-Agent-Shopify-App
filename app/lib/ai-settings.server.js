@@ -53,10 +53,6 @@ export async function saveShopAiSettings(shop, provider, apiKey) {
   });
 }
 
-export async function deleteShopAiSettings(shop) {
-  await prisma.shopAiSettings.deleteMany({ where: { shop } });
-}
-
 export async function logAiUsage({
   shop,
   provider,

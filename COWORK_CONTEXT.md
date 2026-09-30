@@ -58,7 +58,7 @@ Prisma models: `Session`, `DailyUsage` (unique shop+sku+date), `LeadTimeSetting`
 17. `extensions/`, `public/`, `.shopifyapp/` are empty placeholders.
 
 ## 7. Roadmap (from README)
-Settings page (per-SKU lead time, service level) · daily digest (email/Slack; `generateDailyDigest` exists) · auto-draft purchase orders (needs `write_inventory`, higher review bar) · multi-location UI.
+Settings page (per-SKU lead time, service level) · daily digest (email/Slack; not built — would reuse `askForecastAgent`) · auto-draft purchase orders (needs `write_inventory`, higher review bar) · multi-location UI.
 
 ## 8. Publishing plan (suggested order)
 1. `shopify app config link` to the Partner app; commit the real `client_id`.

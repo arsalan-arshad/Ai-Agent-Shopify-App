@@ -116,22 +116,3 @@ export async function askForecastAgent(shop, question, forecastSnapshot) {
     }
   }
 }
-
-/**
- * Generates a proactive daily digest ("what needs attention today") rather
- * than waiting for the merchant to ask.
- */
-export async function generateDailyDigest(shop, forecastSnapshot) {
-  const urgent = forecastSnapshot.filter((f) => f.status === "reorder_now");
-  const soon = forecastSnapshot.filter((f) => f.status === "reorder_soon");
-
-  if (urgent.length === 0 && soon.length === 0) {
-    return "All SKUs are within healthy stock coverage today — no action needed.";
-  }
-
-  return askForecastAgent(
-    shop,
-    "Summarize what needs attention today in 3-4 bullet points, prioritized by urgency.",
-    forecastSnapshot,
-  );
-}
