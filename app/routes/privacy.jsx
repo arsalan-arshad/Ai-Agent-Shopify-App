@@ -27,6 +27,16 @@ export const loader = () =>
   <li><strong>AI usage metering</strong>: number of questions asked and estimated token
     cost per request, used only to enforce a rate limit and show you your own usage in
     Settings.</li>
+  <li><strong>Store contact details</strong>: when you install the app, we read your store
+    name, owner name, store email, plan name, and country once via Shopify&apos;s Admin API,
+    and refresh them periodically. We use this only to provide support, respond to issues
+    with your AI key or forecasts, and — only if you&apos;ve ticked the opt-in checkbox in
+    Settings — to occasionally reach out for feedback or about custom Shopify development
+    work. You can untick that box at any time, and we never send feedback or custom-work
+    messages to a store that hasn&apos;t opted in.</li>
+  <li><strong>Feedback</strong>: if you submit a rating or comment from Settings, we store
+    it to improve the app. It&apos;s never linked to your customers&apos; data and is deleted
+    along with the rest of your shop&apos;s data after you uninstall (see below).</li>
 </ul>
 
 <h2>What we never collect</h2>
@@ -55,8 +65,8 @@ export const loader = () =>
 <h2>Data retention and deletion</h2>
 <ul>
   <li>Uninstalling the app deletes your session credentials immediately.</li>
-  <li>Forecast history, lead-time settings, and AI provider settings are kept briefly in
-    case you reinstall, then permanently deleted — in line with Shopify&apos;s mandatory
+  <li>Forecast history, lead-time settings, AI provider settings, store contact details,
+    and feedback are kept briefly in case you reinstall, then permanently deleted — in line with Shopify&apos;s mandatory
     <code>shop/redact</code> webhook, typically ~48 hours after uninstall.</li>
   <li>Because we never store customer-identifying data, there is nothing to export or erase
     when Shopify&apos;s <code>customers/data_request</code> or

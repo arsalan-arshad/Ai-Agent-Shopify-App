@@ -117,3 +117,33 @@ model AiUsageLog {
 
   @@index([shop, createdAt])
 }
+
+/// Store-owner contact details (the merchant, never their customers), read
+/// from the Admin API `shop` query. Feedback/custom-work outreach is only
+/// allowed when marketingOptIn is true. Deleted on shop/redact.
+model ShopProfile {
+  id               Int       @id @default(autoincrement())
+  shop             String    @unique
+  shopName         String?
+  ownerName        String?
+  email            String?
+  planName         String?
+  country          String?
+  installedAt      DateTime  @default(now())
+  uninstalledAt    DateTime?
+  marketingOptIn   Boolean   @default(false)
+  marketingOptInAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+/// Rating + comment a merchant submits from Settings. Deleted on shop/redact.
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  shop      String
+  rating    Int
+  message   String?
+  createdAt DateTime @default(now())
+
+  @@index([shop])
+}
