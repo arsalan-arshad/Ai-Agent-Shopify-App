@@ -6,3 +6,8 @@ build/
 .shopify/
 .shopifyapp/
 .claude/settings.local.json
+.backup-2026-09-29/
+.icon-candidates/
+Claude-outputs/
+app-icon-1200.png
+screencast
