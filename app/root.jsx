@@ -6,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLoaderData,
+  useLocation,
   useRouteError,
   isRouteErrorResponse,
 } from "@remix-run/react";
@@ -28,14 +29,22 @@ export const loader = async () => {
 
 export default function App() {
   const { apiKey } = useLoaderData();
+  const { pathname } = useLocation();
+  // App Bridge only works inside the Shopify admin; on public pages like
+  // /auth/login it throws "missing required configuration fields: shop".
+  const isAdminPage = pathname === "/app" || pathname.startsWith("/app/");
 
   return (
     <html>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <meta name="shopify-api-key" content={apiKey} />
-        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+        {isAdminPage && (
+          <>
+            <meta name="shopify-api-key" content={apiKey} />
+            <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+          </>
+        )}
         <title>Inventory Forecast Agent</title>
         <Meta />
         <Links />
