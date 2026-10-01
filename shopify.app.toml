@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "46f2f939270873df79eb678079520ad2"
-name = "ai-forecast-agent"
+name = "Agent Forecast"
 application_url = "https://agent-forecast-production.up.railway.app"
 embedded = true
 
@@ -34,7 +34,7 @@ scopes = "read_inventory,read_locations,read_orders,read_products"
 
 [auth]
 redirect_urls = [
-  "https://ai-agent-shopify-app-production.up.railway.app/auth/callback"
+  "https://agent-forecast-production.up.railway.app/auth/callback"
 ]
 
 [build]
