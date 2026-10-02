@@ -278,7 +278,10 @@ export default function Settings() {
   };
 
   const leadTimeRows = leadTimes.map((lt) => [
-    lt.sku ?? <Badge>Shop default</Badge>,
+    // sku is "" (not null) for the shop-wide default row -- see
+    // usage-history.server.js#setLeadTimeDays -- so this must be a
+    // truthiness check, not ?? (which only catches null/undefined).
+    lt.sku ? lt.sku : <Badge>Shop default</Badge>,
     lt.supplierName ?? "—",
     `${lt.leadTimeDays} days`,
   ]);

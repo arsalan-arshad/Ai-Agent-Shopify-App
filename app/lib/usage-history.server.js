@@ -117,13 +117,17 @@ export async function getTrackedSkus(shop) {
  * anything yet.
  */
 export async function getLeadTimeDays(shop, sku) {
-  const skuSetting = await prisma.leadTimeSetting.findUnique({
-    where: { shop_sku_leadtime: { shop, sku } },
-  });
+  const skuSetting = sku
+    ? await prisma.leadTimeSetting.findUnique({
+        where: { shop_sku_leadtime: { shop, sku } },
+      })
+    : null;
   if (skuSetting) return skuSetting.leadTimeDays;
 
-  const shopDefault = await prisma.leadTimeSetting.findFirst({
-    where: { shop, sku: null },
+  // Shop-wide default row is stored with sku: "" (not null) -- see
+  // setLeadTimeDays below.
+  const shopDefault = await prisma.leadTimeSetting.findUnique({
+    where: { shop_sku_leadtime: { shop, sku: "" } },
   });
   if (shopDefault) return shopDefault.leadTimeDays;
 
@@ -131,14 +135,21 @@ export async function getLeadTimeDays(shop, sku) {
 }
 
 /**
- * Upserts a lead-time setting (shop-wide when sku is null, per-SKU
+ * Upserts a lead-time setting (shop-wide default when sku is blank, per-SKU
  * otherwise). Used by the Settings page (app.settings.jsx).
+ *
+ * sku is normalized to "" for the shop-wide default -- never null. Prisma's
+ * generated WhereUniqueInput for the shop_sku_leadtime compound unique index
+ * rejects null for a member field at the validation layer ("Argument `sku`
+ * must not be null"), so passing null here always threw before reaching the
+ * database. "" is a normal, non-null value and works fine as the sentinel.
  */
 export async function setLeadTimeDays(shop, sku, leadTimeDays, supplierName = null) {
+  const normalizedSku = sku ?? "";
   return prisma.leadTimeSetting.upsert({
-    where: { shop_sku_leadtime: { shop, sku: sku ?? null } },
+    where: { shop_sku_leadtime: { shop, sku: normalizedSku } },
     update: { leadTimeDays, supplierName },
-    create: { shop, sku: sku ?? null, leadTimeDays, supplierName },
+    create: { shop, sku: normalizedSku, leadTimeDays, supplierName },
   });
 }
 
