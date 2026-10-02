@@ -78,7 +78,15 @@ model ProcessedOrder {
 model LeadTimeSetting {
   id           Int      @id @default(autoincrement())
   shop         String
-  sku          String? // null = shop-wide default
+  /// "" (empty string) = shop-wide default. NOT a nullable column: Prisma's
+  /// generated WhereUniqueInput for a compound @@unique index rejects null
+  /// for a member field at the validation layer ("Argument `sku` must not
+  /// be null"), even though the underlying Postgres column could allow it —
+  /// so upserting a shop-wide default via shop_sku_leadtime with sku: null
+  /// always threw before ever reaching the database. "" as the sentinel
+  /// keeps the compound unique lookup a normal, working string comparison.
+  /// See migration 20261003000000_fix_leadtime_sku_not_null.
+  sku          String   @default("")
   leadTimeDays Int
   supplierName String?
   updatedAt    DateTime @updatedAt
