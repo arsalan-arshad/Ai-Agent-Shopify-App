@@ -2,7 +2,7 @@
   "name": "shopify-ai-forecast-app",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-agent powered inventory & demand forecasting app for Shopify merchants.",
   "scripts": {
     "build": "remix vite:build",
