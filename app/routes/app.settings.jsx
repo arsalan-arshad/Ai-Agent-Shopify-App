@@ -25,19 +25,40 @@ import {
 } from "../lib/ai-settings.server.js";
 import { listLeadTimeSettings, setLeadTimeDays } from "../lib/usage-history.server.js";
 import { getMarketingOptIn, setMarketingOptIn, saveFeedback } from "../lib/merchant.server.js";
+import {
+  getPreorderSetting,
+  setPreorderSetting,
+  listRestockDates,
+  setRestockDate,
+  deleteRestockDate,
+} from "../lib/preorder-settings.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [aiSettings, usage, leadTimes, marketingOptIn] = await Promise.all([
-    getShopAiSettings(shop),
-    getUsageSummary(shop),
-    listLeadTimeSettings(shop),
-    getMarketingOptIn(shop),
-  ]);
+  const [aiSettings, usage, leadTimes, marketingOptIn, preorderSetting, restockDates] =
+    await Promise.all([
+      getShopAiSettings(shop),
+      getUsageSummary(shop),
+      listLeadTimeSettings(shop),
+      getMarketingOptIn(shop),
+      getPreorderSetting(shop),
+      listRestockDates(shop),
+    ]);
 
-  return json({ aiSettings, usage, leadTimes, marketingOptIn });
+  return json({
+    aiSettings,
+    usage,
+    leadTimes,
+    marketingOptIn,
+    preorderSetting,
+    restockDates: restockDates.map((r) => ({
+      sku: r.sku,
+      date: r.date.toISOString().slice(0, 10),
+      qty: r.qty,
+    })),
+  });
 };
 
 export const action = async ({ request }) => {
@@ -78,6 +99,28 @@ export const action = async ({ request }) => {
       const rating = parseInt(formData.get("rating"), 10);
       const message = formData.get("message")?.toString() ?? "";
       await saveFeedback(shop, rating, message);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "savePreorderSetting") {
+      const switchOnCoverDays = parseInt(formData.get("switchOnCoverDays"), 10);
+      const switchOffCoverDays = parseInt(formData.get("switchOffCoverDays"), 10);
+      await setPreorderSetting(shop, switchOnCoverDays, switchOffCoverDays);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "saveRestockDate") {
+      const sku = formData.get("sku")?.toString().trim();
+      const date = formData.get("date")?.toString().trim();
+      const qtyRaw = formData.get("qty")?.toString().trim();
+      const qty = qtyRaw ? qtyRaw : null;
+      await setRestockDate(shop, sku, date, qty);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "deleteRestockDate") {
+      const sku = formData.get("sku")?.toString().trim();
+      await deleteRestockDate(shop, sku);
       return json({ ok: true, intent });
     }
 
@@ -164,7 +207,14 @@ async function postWithSessionToken(path, formData) {
 }
 
 export default function Settings() {
-  const { aiSettings, usage, leadTimes, marketingOptIn } = useLoaderData();
+  const {
+    aiSettings,
+    usage,
+    leadTimes,
+    marketingOptIn,
+    preorderSetting,
+    restockDates,
+  } = useLoaderData();
 
   const [provider, setProvider] = useState(aiSettings?.provider ?? "gemini");
   const [apiKey, setApiKey] = useState("");
@@ -176,6 +226,22 @@ export default function Settings() {
   const [aiResult, setAiResult] = useState(null);
   const [leadTimeSaving, setLeadTimeSaving] = useState(false);
   const [leadTimeResult, setLeadTimeResult] = useState(null);
+
+  const [switchOnCoverDays, setSwitchOnCoverDays] = useState(
+    String(preorderSetting?.switchOnCoverDays ?? 3),
+  );
+  const [switchOffCoverDays, setSwitchOffCoverDays] = useState(
+    String(preorderSetting?.switchOffCoverDays ?? 7),
+  );
+  const [preorderSaving, setPreorderSaving] = useState(false);
+  const [preorderResult, setPreorderResult] = useState(null);
+
+  const [restockSku, setRestockSku] = useState("");
+  const [restockDate, setRestockDateInput] = useState("");
+  const [restockQty, setRestockQty] = useState("");
+  const [restockSaving, setRestockSaving] = useState(false);
+  const [restockResult, setRestockResult] = useState(null);
+  const [restockDeletingSku, setRestockDeletingSku] = useState(null);
 
   const [optIn, setOptIn] = useState(marketingOptIn);
   const [optInSaving, setOptInSaving] = useState(false);
@@ -277,6 +343,85 @@ export default function Settings() {
     }
   };
 
+  const handleSavePreorderSetting = async (event) => {
+    event.preventDefault();
+    if (preorderSaving) return;
+    setPreorderSaving(true);
+    setPreorderResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "savePreorderSetting");
+      fd.set("switchOnCoverDays", switchOnCoverDays);
+      fd.set("switchOffCoverDays", switchOffCoverDays);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setPreorderResult(data);
+    } catch (err) {
+      console.error("Save pre-order defaults failed:", err);
+      setPreorderResult({
+        ok: false,
+        intent: "savePreorderSetting",
+        error: err.message || "Couldn't save — please try again.",
+      });
+    } finally {
+      setPreorderSaving(false);
+    }
+  };
+
+  const handleSaveRestockDate = async (event) => {
+    event.preventDefault();
+    if (restockSaving) return;
+    setRestockSaving(true);
+    setRestockResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "saveRestockDate");
+      fd.set("sku", restockSku);
+      fd.set("date", restockDate);
+      fd.set("qty", restockQty);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setRestockResult(data);
+      if (data?.ok) {
+        setRestockSku("");
+        setRestockDateInput("");
+        setRestockQty("");
+        // Reload so the table reflects the upsert without a full navigation dance.
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error("Save restock date failed:", err);
+      setRestockResult({
+        ok: false,
+        intent: "saveRestockDate",
+        error: err.message || "Couldn't save — please try again.",
+      });
+    } finally {
+      setRestockSaving(false);
+    }
+  };
+
+  const handleDeleteRestockDate = async (skuToDelete) => {
+    if (restockDeletingSku) return;
+    setRestockDeletingSku(skuToDelete);
+    setRestockResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "deleteRestockDate");
+      fd.set("sku", skuToDelete);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setRestockResult(data);
+      if (data?.ok) window.location.reload();
+    } catch (err) {
+      console.error("Delete restock date failed:", err);
+      setRestockResult({
+        ok: false,
+        intent: "deleteRestockDate",
+        error: err.message || "Couldn't clear — please try again.",
+      });
+    } finally {
+      setRestockDeletingSku(null);
+    }
+  };
+
   const leadTimeRows = leadTimes.map((lt) => [
     // sku is "" (not null) for the shop-wide default row -- see
     // usage-history.server.js#setLeadTimeDays -- so this must be a
@@ -284,6 +429,21 @@ export default function Settings() {
     lt.sku ? lt.sku : <Badge>Shop default</Badge>,
     lt.supplierName ?? "—",
     `${lt.leadTimeDays} days`,
+  ]);
+
+  const restockRows = restockDates.map((r) => [
+    r.sku,
+    r.date,
+    r.qty == null ? "—" : String(r.qty),
+    <Button
+      key={`clear-${r.sku}`}
+      tone="critical"
+      variant="plain"
+      loading={restockDeletingSku === r.sku}
+      onClick={() => handleDeleteRestockDate(r.sku)}
+    >
+      Clear
+    </Button>,
   ]);
 
   return (
@@ -443,6 +603,123 @@ export default function Settings() {
                   </FormLayout.Group>
                   <Button submit loading={leadTimeSaving}>
                     Save lead time
+                  </Button>
+                </FormLayout>
+              </form>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Pre-order recommendation defaults
+              </Text>
+              <Text as="p" tone="subdued">
+                Recommend switching a SKU to pre-order when cover falls to the
+                switch-on threshold, and switching back once cover recovers past
+                the switch-off threshold. Switch-off must stay higher than
+                switch-on so products never flap. Recommend-only — this app does
+                not change your catalog.
+              </Text>
+
+              {preorderResult?.ok && preorderResult.intent === "savePreorderSetting" && (
+                <Banner tone="success">Saved.</Banner>
+              )}
+              {preorderResult?.ok === false && preorderResult.intent === "savePreorderSetting" && (
+                <Banner tone="critical">{preorderResult.error}</Banner>
+              )}
+
+              <form onSubmit={handleSavePreorderSetting}>
+                <FormLayout>
+                  <FormLayout.Group>
+                    <TextField
+                      label="Switch-on cover days"
+                      name="switchOnCoverDays"
+                      type="number"
+                      min={0}
+                      value={switchOnCoverDays}
+                      onChange={setSwitchOnCoverDays}
+                      autoComplete="off"
+                      helpText="Default 3 — suggest pre-order when this many days of cover remain."
+                    />
+                    <TextField
+                      label="Switch-off cover days"
+                      name="switchOffCoverDays"
+                      type="number"
+                      min={0}
+                      value={switchOffCoverDays}
+                      onChange={setSwitchOffCoverDays}
+                      autoComplete="off"
+                      helpText="Default 7 — suggest switching back once cover recovers past this."
+                    />
+                  </FormLayout.Group>
+                  <Button submit loading={preorderSaving}>
+                    Save defaults
+                  </Button>
+                </FormLayout>
+              </form>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Restock dates
+              </Text>
+              <Text as="p" tone="subdued">
+                Expected arrival per SKU. The dashboard uses these with your
+                forecast to show a gap recommendation when restock lands after
+                stockout. Leave blank and the app behaves exactly as before.
+              </Text>
+
+              {restockRows.length > 0 && (
+                <DataTable
+                  columnContentTypes={["text", "text", "numeric", "text"]}
+                  headings={["SKU", "Restock date", "Expected qty", ""]}
+                  rows={restockRows}
+                />
+              )}
+
+              {restockResult?.ok === false &&
+                (restockResult.intent === "saveRestockDate" ||
+                  restockResult.intent === "deleteRestockDate") && (
+                  <Banner tone="critical">{restockResult.error}</Banner>
+                )}
+
+              <form onSubmit={handleSaveRestockDate}>
+                <FormLayout>
+                  <FormLayout.Group>
+                    <TextField
+                      label="SKU"
+                      name="sku"
+                      value={restockSku}
+                      onChange={setRestockSku}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Restock date"
+                      name="date"
+                      type="date"
+                      value={restockDate}
+                      onChange={setRestockDateInput}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Expected qty (optional)"
+                      name="qty"
+                      type="number"
+                      min={0}
+                      value={restockQty}
+                      onChange={setRestockQty}
+                      autoComplete="off"
+                    />
+                  </FormLayout.Group>
+                  <Button submit loading={restockSaving}>
+                    Save restock date
                   </Button>
                 </FormLayout>
               </form>

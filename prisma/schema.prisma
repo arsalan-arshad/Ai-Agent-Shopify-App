@@ -155,3 +155,32 @@ model Feedback {
 
   @@index([shop])
 }
+
+/// Merchant-entered expected restock arrival per SKU. Used by the v0
+/// pre-order recommendation (gap = restock day − projected stockout).
+/// No Shopify writes — recommend-only. Deleted on shop/redact.
+model RestockDate {
+  id        Int      @id @default(autoincrement())
+  shop      String
+  sku       String
+  /// Expected arrival at day granularity (time zeroed), same convention as DailyUsage.
+  date      DateTime
+  /// Optional expected inbound quantity; informational only in v0.
+  qty       Int?
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, sku], name: "shop_sku_restock")
+  @@index([shop])
+}
+
+/// Shop-level thresholds for when to recommend switching a SKU to/from
+/// pre-order. Defaults match SPEC (on=3 cover days left, off=7 cover days
+/// back). switchOff must stay > switchOn so products never flap.
+/// Deleted on shop/redact. PreorderAction (audit/apply) is deferred to v1.
+model PreorderSetting {
+  id                 Int      @id @default(autoincrement())
+  shop               String   @unique
+  switchOnCoverDays  Int      @default(3)
+  switchOffCoverDays Int      @default(7)
+  updatedAt          DateTime @updatedAt
+}

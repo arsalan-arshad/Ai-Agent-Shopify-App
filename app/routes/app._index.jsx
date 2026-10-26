@@ -16,6 +16,7 @@ import {
   EmptyState,
   Link,
   Banner,
+  InlineStack,
 } from "@shopify/polaris";
 import { authenticate } from "../lib/shopify.server.js";
 import { buildForecastSnapshot } from "../lib/forecast-snapshot.server.js";
@@ -142,8 +143,29 @@ export default function Dashboard() {
   const { forecastSnapshot, loadError, isBackfilling, hasAiKey } = useLoaderData();
   const [question, setQuestion] = useState("");
   const [toastMessage, setToastMessage] = useState(null);
+  const [toastError, setToastError] = useState(false);
   const [asking, setAsking] = useState(false);
   const [chatResult, setChatResult] = useState(null);
+
+  const showToast = (message, { error = false } = {}) => {
+    setToastError(error);
+    setToastMessage(message);
+  };
+
+  const preorderCandidates = forecastSnapshot.filter(
+    (item) => item.preorder?.recommendation?.state === "candidate",
+  );
+
+  const handleCopySummary = async (summary) => {
+    if (!summary) return;
+    try {
+      await navigator.clipboard.writeText(summary);
+      showToast("Copied summary — paste it into your pre-order app.");
+    } catch (err) {
+      console.error("Clipboard write failed:", err);
+      showToast("Couldn't copy — select the summary text manually.", { error: true });
+    }
+  };
 
   const handleAsk = async () => {
     if (!question.trim() || asking) return;
@@ -155,11 +177,13 @@ export default function Dashboard() {
       const data = await postWithSessionToken("/api/agent-chat", fd);
       setChatResult(data);
       if (data?.error && !data?.needsSetup) {
-        setToastMessage(data.error);
+        showToast(data.error, { error: true });
       }
     } catch (err) {
       console.error("Ask the forecast agent failed:", err);
-      setToastMessage(err.message || "Couldn't reach the forecast agent. Please try again.");
+      showToast(err.message || "Couldn't reach the forecast agent. Please try again.", {
+        error: true,
+      });
     } finally {
       setAsking(false);
     }
@@ -181,13 +205,55 @@ export default function Dashboard() {
       <Page title="Inventory Forecast Agent">
         <Layout>
           <Layout.Section>
+            <BlockStack gap="400">
             {loadError && (
-              <BlockStack gap="300">
-                <Banner tone="critical" title="Couldn't load your inventory">
-                  <p>{loadError}</p>
-                </Banner>
-              </BlockStack>
+              <Banner tone="critical" title="Couldn't load your inventory">
+                <p>{loadError}</p>
+              </Banner>
             )}
+
+            {preorderCandidates.map((item) => {
+              const rec = item.preorder.recommendation;
+              const summary = item.preorder.summary;
+              return (
+                <Card key={`preorder-${item.sku}`}>
+                  <BlockStack gap="300">
+                    <InlineStack align="space-between" blockAlign="center" wrap>
+                      <Text as="h2" variant="headingMd">
+                        Pre-order gap: {item.sku}
+                      </Text>
+                      <Badge tone="warning">Recommend only</Badge>
+                    </InlineStack>
+                    <Text as="p">
+                      {item.title && item.title !== item.sku ? `${item.title} · ` : ""}
+                      Stockout ~day {Number.isFinite(item.daysOfCover) ? item.daysOfCover : "—"}
+                      , restock {item.preorder.restockDate}
+                      {" "}(day {item.preorder.restockDay})
+                      — gap {rec.gapDays} day{rec.gapDays === 1 ? "" : "s"}
+                      , ~{rec.unitsAtRisk} units at risk.
+                      Suggested switch-on around day {rec.switchOnDay}.
+                    </Text>
+                    <Text as="p" tone="subdued">
+                      This app does not change your catalog. Copy the summary
+                      into your existing pre-order app, or set restock dates in{" "}
+                      <Link url="/app/settings">Settings</Link>.
+                    </Text>
+                    {summary && (
+                      <BlockStack gap="200">
+                        <Text as="p" variant="bodySm" tone="subdued">
+                          <span style={{ whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+                            {summary}
+                          </span>
+                        </Text>
+                        <Button onClick={() => handleCopySummary(summary)}>
+                          Copy summary
+                        </Button>
+                      </BlockStack>
+                    )}
+                  </BlockStack>
+                </Card>
+              );
+            })}
 
             <Card>
               {forecastSnapshot.length === 0 && !loadError ? (
@@ -231,6 +297,7 @@ export default function Dashboard() {
                 />
               )}
             </Card>
+            </BlockStack>
           </Layout.Section>
 
           <Layout.Section>
@@ -277,7 +344,11 @@ export default function Dashboard() {
         </Layout>
       </Page>
       {toastMessage && (
-        <Toast content={toastMessage} error onDismiss={() => setToastMessage(null)} />
+        <Toast
+          content={toastMessage}
+          error={toastError}
+          onDismiss={() => setToastMessage(null)}
+        />
       )}
     </Frame>
   );
