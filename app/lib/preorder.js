@@ -118,6 +118,84 @@ export function revertRecommendation({
   return stock / dailyDemand >= switchOffCoverDays;
 }
 
+/**
+ * Days from `now` (UTC day) until the restock date. Negative if past.
+ * Returns null when the date is missing/invalid. Pure — used by the
+ * snapshot builder to turn a calendar date into the `restockDay` input
+ * for preorderRecommendation.
+ *
+ * @param {Date | string | null | undefined} date
+ * @param {Date} [now]
+ * @returns {number | null}
+ */
+export function daysUntilRestock(date, now = new Date()) {
+  if (date == null || date === "") return null;
+  const target = startOfUtcDay(date);
+  const today = startOfUtcDay(now);
+  if (!target || !today) return null;
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function startOfUtcDay(date) {
+  if (date == null || date === "") return null;
+  if (typeof date === "string") {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+    if (m) {
+      return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    }
+  }
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * Plain-text summary a merchant can paste into their existing pre-order
+ * app. Only includes numbers already computed by the engine — never
+ * invents figures. Returns null when there is no candidate recommendation.
+ *
+ * @param {{
+ *   sku: string,
+ *   title?: string,
+ *   restockDate: string,
+ *   gapDays: number,
+ *   unitsAtRisk: number,
+ *   switchOnDay: number,
+ *   daysOfCover: number,
+ *   avgDailyUsage: number,
+ * }} args
+ * @returns {string | null}
+ */
+export function formatPreorderSummary({
+  sku,
+  title,
+  restockDate,
+  gapDays,
+  unitsAtRisk,
+  switchOnDay,
+  daysOfCover,
+  avgDailyUsage,
+}) {
+  if (!(gapDays > 0) || !sku || !restockDate) return null;
+
+  const label = title && title !== sku ? `${sku} (${title})` : sku;
+  const cover =
+    Number.isFinite(daysOfCover) ? round2(daysOfCover) : "n/a";
+  const demand = Number.isFinite(avgDailyUsage) ? round2(avgDailyUsage) : "n/a";
+  const switchOn =
+    Number.isFinite(switchOnDay) ? round2(switchOnDay) : "n/a";
+
+  return [
+    `Pre-order recommendation for ${label}`,
+    `• Projected stockout: day ${cover} (≈${demand}/day demand)`,
+    `• Restock expected: ${restockDate}`,
+    `• Gap: ${gapDays} day${gapDays === 1 ? "" : "s"} · ~${unitsAtRisk} units at risk`,
+    `• Suggested switch-on: around day ${switchOn} (while cover remains)`,
+    `• Paste into your pre-order app — Agent Forecast does not change your catalog.`,
+  ].join("\n");
+}
+
 function round2(n) {
   return Math.round(n * 100) / 100;
 }

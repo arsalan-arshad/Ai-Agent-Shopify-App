@@ -5,6 +5,8 @@ import {
   unitsAtRisk,
   preorderRecommendation,
   revertRecommendation,
+  formatPreorderSummary,
+  daysUntilRestock,
 } from "../app/lib/preorder.js";
 
 // README worked example (05-forecast-preorder-switch):
@@ -146,4 +148,44 @@ test("hysteresis defaults: switch-off (7) > switch-on (3)", () => {
 
   // After restock brings cover back past 7 days, revert flips on.
   assert.equal(revertRecommendation({ stock: 64, dailyDemand: 8 }), true);
+});
+
+test("daysUntilRestock converts a calendar date to day offset", () => {
+  const now = new Date(Date.UTC(2026, 9, 27)); // 2026-10-27
+  assert.equal(daysUntilRestock("2026-11-25", now), 29);
+  assert.equal(daysUntilRestock("2026-10-27", now), 0);
+  assert.equal(daysUntilRestock(null, now), null);
+});
+
+test("formatPreorderSummary is null without a gap", () => {
+  assert.equal(
+    formatPreorderSummary({
+      sku: "Y",
+      restockDate: "2026-11-25",
+      gapDays: 0,
+      unitsAtRisk: 0,
+      switchOnDay: null,
+      daysOfCover: 30,
+      avgDailyUsage: 8,
+    }),
+    null,
+  );
+});
+
+test("formatPreorderSummary includes engine numbers for a candidate", () => {
+  const text = formatPreorderSummary({
+    sku: "Y",
+    title: "Widget Y",
+    restockDate: "2026-11-25",
+    gapDays: 14,
+    unitsAtRisk: 112,
+    switchOnDay: 12,
+    daysOfCover: 15,
+    avgDailyUsage: 8,
+  });
+  assert.match(text, /SKU Y \(Widget Y\)|Y \(Widget Y\)/);
+  assert.match(text, /112/);
+  assert.match(text, /14 day/);
+  assert.match(text, /2026-11-25/);
+  assert.match(text, /day 12/);
 });

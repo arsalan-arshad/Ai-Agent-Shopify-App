@@ -15,6 +15,8 @@ export const action = async ({ request }) => {
     prisma.dailyUsage.deleteMany({ where: { shop } }),
     prisma.processedOrder.deleteMany({ where: { shop } }),
     prisma.leadTimeSetting.deleteMany({ where: { shop } }),
+    prisma.restockDate.deleteMany({ where: { shop } }),
+    prisma.preorderSetting.deleteMany({ where: { shop } }),
     prisma.aiUsageLog.deleteMany({ where: { shop } }),
     prisma.shopAiSettings.deleteMany({ where: { shop } }),
     prisma.shopProfile.deleteMany({ where: { shop } }),
