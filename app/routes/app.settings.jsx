@@ -32,6 +32,7 @@ import {
   setRestockDate,
   deleteRestockDate,
 } from "../lib/preorder-settings.server.js";
+import { daysUntilRestock, isRestockDateStale } from "../lib/preorder.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -431,20 +432,34 @@ export default function Settings() {
     `${lt.leadTimeDays} days`,
   ]);
 
-  const restockRows = restockDates.map((r) => [
-    r.sku,
-    r.date,
-    r.qty == null ? "—" : String(r.qty),
-    <Button
-      key={`clear-${r.sku}`}
-      tone="critical"
-      variant="plain"
-      loading={restockDeletingSku === r.sku}
-      onClick={() => handleDeleteRestockDate(r.sku)}
-    >
-      Clear
-    </Button>,
-  ]);
+  const staleRestockDates = restockDates.filter((r) =>
+    isRestockDateStale(daysUntilRestock(r.date)),
+  );
+
+  const restockRows = restockDates.map((r) => {
+    const stale = isRestockDateStale(daysUntilRestock(r.date));
+    return [
+      r.sku,
+      stale ? (
+        <InlineStack key={`date-${r.sku}`} gap="200" blockAlign="center" wrap>
+          <span>{r.date}</span>
+          <Badge tone="warning">Past date</Badge>
+        </InlineStack>
+      ) : (
+        r.date
+      ),
+      r.qty == null ? "—" : String(r.qty),
+      <Button
+        key={`clear-${r.sku}`}
+        tone="critical"
+        variant="plain"
+        loading={restockDeletingSku === r.sku}
+        onClick={() => handleDeleteRestockDate(r.sku)}
+      >
+        Clear
+      </Button>,
+    ];
+  });
 
   return (
     <Page title="Settings" backAction={{ content: "Dashboard", url: "/app" }}>
@@ -675,6 +690,15 @@ export default function Settings() {
                 forecast to show a gap recommendation when restock lands after
                 stockout. Leave blank and the app behaves exactly as before.
               </Text>
+
+              {staleRestockDates.length > 0 && (
+                <Banner tone="warning" title="Restock dates in the past">
+                  <p>
+                    {staleRestockDates.map((r) => r.sku).join(", ")} — update
+                    the expected arrival so recommendations stay accurate.
+                  </p>
+                </Banner>
+              )}
 
               {restockRows.length > 0 && (
                 <DataTable

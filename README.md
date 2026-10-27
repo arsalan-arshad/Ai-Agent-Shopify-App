@@ -84,7 +84,15 @@ Free plan**.
   - Polaris 13 dashboard with a forecast table, inventory-health status tags, and an in-app
     AI chat drawer.
   - Settings page: AI provider key management, usage/cost panel, per-SKU or shop-wide lead
-    times, and a merchant contact/feedback card.
+    times, pre-order cover thresholds + restock dates, and a merchant contact/feedback card.
+
+- **Pre-order gap recommendations (v0, recommend-only)** (`app/lib/preorder.js`):
+  - When a merchant enters a per-SKU restock date, the engine compares it to days of cover
+    and surfaces a dashboard card with gap days, units at risk, and a suggested switch-on
+    day — plus a copyable summary for their existing pre-order app.
+  - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update
+    (SPEC §6). Optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
+  - Planning docs live in [`../05-forecast-preorder-switch/`](../05-forecast-preorder-switch/).
 
 - **Webhook Pipeline & Data Integrity**:
   - Delta-based order tracking (`orders/create` + `orders/updated` → one handler,
@@ -111,6 +119,9 @@ app/
 │   ├── forecasting.js                # Pure math: WMA, reorder point, days-of-cover,
 │   │                                  # status classification — zero dependencies, zero
 │   │                                  # side effects, zero AI calls. The core of the app.
+│   ├── preorder.js                   # Pure pre-order gap / recommendation math + copy
+│   │                                  # summary helpers (recommend-only v0).
+│   ├── preorder-settings.server.js   # Restock dates + switch-on/off cover thresholds.
 │   ├── forecast-snapshot.server.js   # Builds the forecast snapshot from live Admin API +
 │   │                                  # DB (paginated, multi-location aware). The one place
 │   │                                  # it's built — dashboard and chat both call this.
@@ -229,9 +240,10 @@ npm run stats       # scripts/stats.mjs — prints aggregate portfolio numbers (
 npx prisma studio   # inspect what a webhook handler or the backfill actually wrote
 ```
 
-An automated unit/integration test suite (Jest or Vitest around `forecasting.js` and the
-webhook delta logic in particular) is on the roadmap below and is one of the most useful
-places for a contribution — the math being pure functions makes it straightforward to test.
+Pre-order math already has a Node built-in test suite (`npm test` → `test/preorder.test.js`).
+Broader coverage around `forecasting.js` and the webhook delta logic is still on the roadmap
+below and remains one of the most useful places for a contribution — the math being pure
+functions makes it straightforward to test.
 
 ---
 
@@ -269,7 +281,9 @@ editing the TOML locally has no effect on Shopify's side until it's actually dep
 - [x] Multi-location inventory aggregation and per-SKU/shop-wide lead times
 - [x] Full mandatory GDPR/App Store compliance webhook set, with a real full-teardown redact
 - [x] OAuth install flow hardened against manual shop-domain entry (App Store 2.3.1)
-- [ ] Automated test suite (Jest/Vitest) around `forecasting.js` and the webhook delta logic
+- [x] Pre-order recommend-only v0 (gap math, restock dates, dashboard card, grounded AI)
+- [x] Node test suite for pre-order math (`npm test` / `test/preorder.test.js`)
+- [ ] Broader automated tests around `forecasting.js` and the webhook delta logic
 - [ ] Automated daily email/Slack stockout digest
 - [ ] Auto-draft Purchase Orders (would need a `write_inventory` scope — bigger App Store
       review bar, worth adding once there's real demand)

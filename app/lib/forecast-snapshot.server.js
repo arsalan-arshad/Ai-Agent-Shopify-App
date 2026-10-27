@@ -14,6 +14,7 @@ import {
   revertRecommendation,
   formatPreorderSummary,
   daysUntilRestock,
+  isRestockDateStale,
 } from "./preorder.js";
 
 /**
@@ -143,6 +144,7 @@ export async function buildForecastSnapshot(admin, shop, { maxItems = 2000 } = {
             restockDate: restockDateIso,
             restockQty: restock.qty ?? null,
             restockDay,
+            staleRestockDate: isRestockDateStale(restockDay),
             switchOnCoverDays: preorderSetting.switchOnCoverDays,
             switchOffCoverDays: preorderSetting.switchOffCoverDays,
             recommendation,

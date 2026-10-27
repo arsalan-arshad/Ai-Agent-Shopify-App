@@ -23,6 +23,7 @@ import { buildForecastSnapshot } from "../lib/forecast-snapshot.server.js";
 import { getTrackedSkus } from "../lib/usage-history.server.js";
 import { backfillUsageHistory } from "../lib/backfill.server.js";
 import { getShopAiSettings } from "../lib/ai-settings.server.js";
+import { formatDayCount } from "../lib/preorder.js";
 
 /**
  * Usage history comes from the DailyUsage table, populated continuously by
@@ -155,6 +156,9 @@ export default function Dashboard() {
   const preorderCandidates = forecastSnapshot.filter(
     (item) => item.preorder?.recommendation?.state === "candidate",
   );
+  const staleRestockItems = forecastSnapshot.filter(
+    (item) => item.preorder?.staleRestockDate,
+  );
 
   const handleCopySummary = async (summary) => {
     if (!summary) return;
@@ -212,9 +216,27 @@ export default function Dashboard() {
               </Banner>
             )}
 
+            {staleRestockItems.length > 0 && (
+              <Banner tone="warning" title="Update past restock dates">
+                <p>
+                  {staleRestockItems.length === 1
+                    ? `SKU ${staleRestockItems[0].sku} has a restock date in the past (${staleRestockItems[0].preorder.restockDate}).`
+                    : `${staleRestockItems.length} SKUs have restock dates in the past.`}{" "}
+                  Refresh the expected arrival in{" "}
+                  <Link url="/app/settings">Settings</Link> so gap
+                  recommendations stay accurate.
+                </p>
+              </Banner>
+            )}
+
             {preorderCandidates.map((item) => {
               const rec = item.preorder.recommendation;
               const summary = item.preorder.summary;
+              const gapLabel = formatDayCount(rec.gapDays);
+              const switchOnLabel = formatDayCount(rec.switchOnDay);
+              const coverLabel = formatDayCount(item.daysOfCover);
+              const restockDayLabel = formatDayCount(item.preorder.restockDay);
+              const gapSingular = Number(gapLabel) === 1;
               return (
                 <Card key={`preorder-${item.sku}`}>
                   <BlockStack gap="300">
@@ -226,12 +248,12 @@ export default function Dashboard() {
                     </InlineStack>
                     <Text as="p">
                       {item.title && item.title !== item.sku ? `${item.title} · ` : ""}
-                      Stockout ~day {Number.isFinite(item.daysOfCover) ? item.daysOfCover : "—"}
+                      Stockout ~day {coverLabel}
                       , restock {item.preorder.restockDate}
-                      {" "}(day {item.preorder.restockDay})
-                      — gap {rec.gapDays} day{rec.gapDays === 1 ? "" : "s"}
+                      {" "}(day {restockDayLabel})
+                      — gap {gapLabel} day{gapSingular ? "" : "s"}
                       , ~{rec.unitsAtRisk} units at risk.
-                      Suggested switch-on around day {rec.switchOnDay}.
+                      Suggested switch-on around day {switchOnLabel}.
                     </Text>
                     <Text as="p" tone="subdued">
                       This app does not change your catalog. Copy the summary

@@ -7,6 +7,8 @@ import {
   revertRecommendation,
   formatPreorderSummary,
   daysUntilRestock,
+  isRestockDateStale,
+  formatDayCount,
 } from "../app/lib/preorder.js";
 
 // README worked example (05-forecast-preorder-switch):
@@ -188,4 +190,56 @@ test("formatPreorderSummary includes engine numbers for a candidate", () => {
   assert.match(text, /14 day/);
   assert.match(text, /2026-11-25/);
   assert.match(text, /day 12/);
+});
+
+test("preorderRecommendation accepts an explicit projectedStockoutDay", () => {
+  // Pipeline-Aware hook: stock/demand would imply day 15, but the
+  // inbound pipeline projects stockout on day 10 — gap should use 10.
+  const out = preorderRecommendation({
+    stock: 120,
+    dailyDemand: 8,
+    restockDay: 29,
+    projectedStockoutDay: 10,
+  });
+  assert.equal(out.state, "candidate");
+  assert.equal(out.gapDays, 19);
+  assert.equal(out.switchOnDay, 7); // 10 - 3
+  assert.equal(out.unitsAtRisk, 152); // 8 * 19
+});
+
+test("formatDayCount rounds fractional day displays", () => {
+  assert.equal(formatDayCount(11.857), "12");
+  assert.equal(formatDayCount(14), "14");
+  assert.equal(formatDayCount(Infinity), "—");
+  assert.equal(formatDayCount(null), "—");
+});
+
+test("formatPreorderSummary rounds fractional gap and switch-on days", () => {
+  const text = formatPreorderSummary({
+    sku: "Y",
+    restockDate: "2026-11-25",
+    gapDays: 11.857,
+    unitsAtRisk: 95,
+    switchOnDay: 8.142,
+    daysOfCover: 11.142,
+    avgDailyUsage: 8,
+  });
+  assert.match(text, /Gap: 12 days/);
+  assert.match(text, /around day 8/);
+  assert.match(text, /day 11/);
+  assert.doesNotMatch(text, /11\.857/);
+});
+
+test("isRestockDateStale is true only for negative day offsets", () => {
+  assert.equal(isRestockDateStale(-1), true);
+  assert.equal(isRestockDateStale(0), false);
+  assert.equal(isRestockDateStale(5), false);
+  assert.equal(isRestockDateStale(null), false);
+  assert.equal(isRestockDateStale(Infinity), false);
+});
+
+test("daysUntilRestock is negative when the date is in the past", () => {
+  const now = new Date(Date.UTC(2026, 9, 27)); // 2026-10-27
+  assert.equal(daysUntilRestock("2026-10-20", now), -7);
+  assert.equal(isRestockDateStale(daysUntilRestock("2026-10-20", now)), true);
 });

@@ -38,15 +38,21 @@ export function unitsAtRisk({ dailyDemand, gapDays }) {
 /**
  * Whether / when to suggest switching a SKU to pre-order.
  *
- * projectedStockoutDay = stock / dailyDemand (days of cover).
- * switchOnDay = stockout day − switchOnCoverDays (default: 3 days of
- * cover left). state is 'candidate' only when gapDays > 0.
+ * projectedStockoutDay defaults to stock / dailyDemand (days of cover).
+ * Callers (e.g. Pipeline-Aware Forecast) may pass an explicit
+ * projectedStockoutDay instead. switchOnDay = stockout day −
+ * switchOnCoverDays (default: 3 days of cover left). state is
+ * 'candidate' only when gapDays > 0.
+ *
+ * Math stays precise (floats OK). Round only at the display layer via
+ * formatDayCount / formatPreorderSummary.
  *
  * @param {{
  *   stock: number,
  *   dailyDemand: number,
  *   restockDay: number,
  *   switchOnCoverDays?: number,
+ *   projectedStockoutDay?: number,
  * }} args
  * @returns {{
  *   state: 'none' | 'candidate',
@@ -60,6 +66,7 @@ export function preorderRecommendation({
   dailyDemand,
   restockDay,
   switchOnCoverDays = 3,
+  projectedStockoutDay: projectedStockoutDayInput,
 }) {
   const none = {
     state: "none",
@@ -78,7 +85,13 @@ export function preorderRecommendation({
     return none;
   }
 
-  const projectedStockoutDay = stock / dailyDemand;
+  const projectedStockoutDay = Number.isFinite(projectedStockoutDayInput)
+    ? projectedStockoutDayInput
+    : stock / dailyDemand;
+  if (!(projectedStockoutDay >= 0)) {
+    return none;
+  }
+
   const { gapDays } = restockGap({ projectedStockoutDay, restockDay });
   if (gapDays <= 0) return none;
 
@@ -88,6 +101,29 @@ export function preorderRecommendation({
     gapDays,
     unitsAtRisk: unitsAtRisk({ dailyDemand, gapDays }),
   };
+}
+
+/**
+ * True when the merchant's restock date is already in the past
+ * (daysUntilRestock < 0). SPEC §6: stale dates should prompt an update.
+ *
+ * @param {number | null | undefined} restockDay
+ * @returns {boolean}
+ */
+export function isRestockDateStale(restockDay) {
+  return Number.isFinite(restockDay) && restockDay < 0;
+}
+
+/**
+ * Round a day-count for merchant-facing copy (card, summary). Keeps
+ * engine math pure; only presentation strings should call this.
+ *
+ * @param {number | null | undefined} n
+ * @returns {string}
+ */
+export function formatDayCount(n) {
+  if (!Number.isFinite(n)) return "—";
+  return String(Math.round(n));
 }
 
 /**
@@ -180,17 +216,17 @@ export function formatPreorderSummary({
   if (!(gapDays > 0) || !sku || !restockDate) return null;
 
   const label = title && title !== sku ? `${sku} (${title})` : sku;
-  const cover =
-    Number.isFinite(daysOfCover) ? round2(daysOfCover) : "n/a";
+  const cover = formatDayCount(daysOfCover);
   const demand = Number.isFinite(avgDailyUsage) ? round2(avgDailyUsage) : "n/a";
-  const switchOn =
-    Number.isFinite(switchOnDay) ? round2(switchOnDay) : "n/a";
+  const switchOn = formatDayCount(switchOnDay);
+  const gap = formatDayCount(gapDays);
+  const gapNum = Number(gap);
 
   return [
     `Pre-order recommendation for ${label}`,
     `• Projected stockout: day ${cover} (≈${demand}/day demand)`,
     `• Restock expected: ${restockDate}`,
-    `• Gap: ${gapDays} day${gapDays === 1 ? "" : "s"} · ~${unitsAtRisk} units at risk`,
+    `• Gap: ${gap} day${gapNum === 1 ? "" : "s"} · ~${unitsAtRisk} units at risk`,
     `• Suggested switch-on: around day ${switchOn} (while cover remains)`,
     `• Paste into your pre-order app — Agent Forecast does not change your catalog.`,
   ].join("\n");
