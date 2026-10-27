@@ -138,6 +138,8 @@ export function formatDayCount(n) {
  * Whole-number display figures for the recommendation card / summary.
  * Prefers gap = rounded(restock) − rounded(cover) when that still shows a
  * positive gap (so the card adds up); otherwise Math.round(gapDays).
+ * For candidates (gapDays > 0) the displayed gap is never below 1, so a
+ * fractional gap that rounds to 0 still shows at least one day.
  * unitsAtRisk is Math.round of demand × that whole-day gap.
  * Engine math in preorderRecommendation stays unrounded.
  *
@@ -167,12 +169,13 @@ export function preorderDisplayFigures({
   const gapRounded = Math.round(gapDays);
   const restock = Number.isFinite(restockDay) ? Math.round(restockDay) : null;
   const switchOn = Number.isFinite(switchOnDay) ? Math.round(switchOnDay) : null;
+  const floorCandidateGap = (n) => (gapDays > 0 ? Math.max(1, n) : n);
 
-  let gap = gapRounded;
+  let gap = floorCandidateGap(gapRounded);
   if (restock != null && Number.isFinite(daysOfCover)) {
     const fromEndpoints = restock - cover;
     if (fromEndpoints > 0) {
-      gap = fromEndpoints;
+      gap = floorCandidateGap(fromEndpoints);
     }
   }
 

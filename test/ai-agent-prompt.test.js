@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSystemPrompt } from "../app/lib/ai-agent.js";
+import { buildSystemPrompt } from "../app/lib/ai-prompt.js";
 
 test("system prompt embeds the snapshot and forbids inventing preorder figures", () => {
   const snapshot = [

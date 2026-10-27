@@ -304,6 +304,57 @@ test("formatPreorderSummary and display figures use whole days and units", () =>
   assert.doesNotMatch(text, /\d+\.\d+/);
 });
 
+test("preorderDisplayFigures floors candidate gap at 1 when cover rounds to restock", () => {
+  // cover 28.6 → 29, restock 29 → endpoint gap 0; raw gapDays 0.4 → round 0.
+  // Candidate still needs a visible gap of at least 1 day.
+  const display = preorderDisplayFigures({
+    daysOfCover: 28.6,
+    gapDays: 29 - 28.6,
+    switchOnDay: 28.6 - 3,
+    avgDailyUsage: 5,
+    restockDay: 29,
+  });
+  assert.deepEqual(display, {
+    cover: 29,
+    gap: 1,
+    switchOn: 26,
+    restock: 29,
+    units: 5,
+  });
+  assert.notEqual(display.gap, 0);
+
+  const text = formatPreorderSummary({
+    sku: "Y",
+    restockDate: "2026-11-25",
+    gapDays: 29 - 28.6,
+    switchOnDay: 28.6 - 3,
+    daysOfCover: 28.6,
+    avgDailyUsage: 5,
+    restockDay: 29,
+  });
+  assert.match(text, /Gap: 1 day/);
+  assert.match(text, /~5 units/);
+  assert.doesNotMatch(text, /Gap: 0/);
+});
+
+test("preorderDisplayFigures uses endpoint gap when cover rounds below restock", () => {
+  // cover 28.4 → 28, restock 29 → endpoint gap 1; raw gapDays 0.6.
+  const display = preorderDisplayFigures({
+    daysOfCover: 28.4,
+    gapDays: 29 - 28.4,
+    switchOnDay: 28.4 - 3,
+    avgDailyUsage: 5,
+    restockDay: 29,
+  });
+  assert.deepEqual(display, {
+    cover: 28,
+    gap: 1,
+    switchOn: 25,
+    restock: 29,
+    units: 5,
+  });
+});
+
 test("formatPreorderSummary rounds fractional gap and switch-on days", () => {
   const text = formatPreorderSummary({
     sku: "Y",
