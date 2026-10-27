@@ -70,7 +70,8 @@ Free plan**.
   - Strict grounding: the chat endpoint (`api.agent-chat.jsx`) rebuilds the forecast snapshot
     server-side on every call instead of trusting a client-supplied one. Prompt-enforced,
     tested that the snapshot is embedded; the agent is instructed to answer only from that
-    JSON and never invent a gap, restock date, or units-at-risk figure.
+    JSON and never invent a gap, restock date, units-at-risk, order quantity, or
+    revenue-at-risk figure.
   - Per-shop rate limiting — 20 AI questions per rolling 60-second window, backed by the same
     `AiUsageLog` table used for cost metering (`app/lib/ai-settings.server.js`,
     `isRateLimited`).
@@ -85,7 +86,8 @@ Free plan**.
   - Polaris 13 dashboard with a forecast table, inventory-health status tags, and an in-app
     AI chat drawer.
   - Settings page: AI provider key management, usage/cost panel, per-SKU or shop-wide lead
-    times, pre-order cover thresholds + restock dates, and a merchant contact/feedback card.
+    times, pre-order cover thresholds + restock dates, suppliers / SKU terms / reorder
+    defaults, and a merchant contact/feedback card.
 
 - **Pre-order gap recommendations (v0, recommend-only)** (`app/lib/preorder.js`):
   - When a merchant enters a per-SKU restock date, the engine compares it to days of cover
@@ -94,6 +96,13 @@ Free plan**.
   - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update
     (SPEC §6). Optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
   - Planning docs: planning blueprint, kept outside this repo.
+
+- **Reorder Brain (v0, recommend-only)** (`app/lib/reorder.js`):
+  - Merchant-entered suppliers + per-SKU terms (lead time, MOQ, pack size, unit cost)
+    produce an order-up-to quantity, revenue at risk, and a copyable/CSV draft purchase
+    order grouped by supplier. Demand/safety stock still come from `forecasting.js`.
+  - No new Shopify scopes, **no catalog/PO writes**. Drafts only — say "merge 07" before
+    shipping to main. Planning docs: `../07-reorder-brain/`.
 
 - **Webhook Pipeline & Data Integrity**:
   - Delta-based order tracking (`orders/create` + `orders/updated` → one handler,
@@ -106,8 +115,8 @@ Free plan**.
     `shop/redact`, plus `app/uninstalled` — all declared in `shopify.app.toml`, all verified
     via `authenticate.webhook`'s built-in HMAC check. `shop/redact` tears down every
     shop-keyed table (`DailyUsage`, `ProcessedOrder`, `LeadTimeSetting`, `RestockDate`,
-    `PreorderSetting`, `AiUsageLog`, `ShopAiSettings`, `ShopProfile`, `Feedback`,
-    `Session`) in one Prisma transaction.
+    `PreorderSetting`, `SkuSupplierTerms`, `Supplier`, `ReorderSetting`, `AiUsageLog`,
+    `ShopAiSettings`, `ShopProfile`, `Feedback`, `Session`) in one Prisma transaction.
   - `Session` carries `refreshToken`/`refreshTokenExpires` for Shopify's expiring-offline-token
     requirement (mandatory for all public apps from January 2027).
 
@@ -124,6 +133,9 @@ app/
 │   ├── preorder.js                   # Pure pre-order gap / recommendation math + copy
 │   │                                  # summary helpers (recommend-only v0).
 │   ├── preorder-settings.server.js   # Restock dates + switch-on/off cover thresholds.
+│   ├── reorder.js                    # Pure reorder qty / shortfall / draft PO math
+│   │                                  # (recommend-only v0; reuses forecasting.js demand).
+│   ├── reorder-settings.server.js    # Suppliers, SKU terms, reorder defaults.
 │   ├── forecast-snapshot.server.js   # Builds the forecast snapshot from live Admin API +
 │   │                                  # DB (paginated, multi-location aware). The one place
 │   │                                  # it's built — dashboard and chat both call this.
@@ -141,8 +153,8 @@ app/
 │   ├── shopify.server.js             # @shopify/shopify-app-remix config, OAuth, sessions.
 │   └── db.server.js                  # Prisma client singleton.
 ├── routes/
-│   ├── app._index.jsx                # Dashboard: forecast table + AI chat drawer.
-│   ├── app.settings.jsx              # AI key, usage panel, lead times, contact & feedback.
+│   ├── app._index.jsx                # Dashboard: forecast table, at-risk/draft PO, AI chat.
+│   ├── app.settings.jsx              # AI key, lead times, pre-order + reorder settings.
 │   ├── api.agent-chat.jsx            # Chat endpoint — rebuilds the snapshot server-side,
 │   │                                  # rate-limits, never trusts client-supplied data.
 │   ├── auth.$.jsx                    # Shopify-template OAuth entry point.
@@ -157,7 +169,7 @@ app/
 └── root.jsx                          # App Bridge script (gated to /app/* only), favicons.
 
 prisma/
-├── schema.prisma                     # 10 models — see section 4.
+├── schema.prisma                     # 13 models — see section 4.
 └── migrations/                       # Hand-authored SQL, applied via `prisma migrate
                                        # deploy` on every deploy (see section 7).
 ```
@@ -179,6 +191,9 @@ Prisma supports one database provider per project, so SQLite was dropped entirel
 | `LeadTimeSetting` | Per-SKU or shop-wide (`sku: ""`) reorder lead time, editable from Settings. |
 | `RestockDate` | Per-SKU expected restock arrival (date + optional qty). Informational for the recommend-only pre-order card; no catalog writes. |
 | `PreorderSetting` | Shop-level switch-on / switch-off cover-day thresholds for pre-order recommendations (defaults 3 / 7). |
+| `Supplier` | Merchant-entered suppliers (name, default lead time, notes). App DB only — no Shopify writes. |
+| `SkuSupplierTerms` | Per-SKU supplier binding: optional lead time / MOQ / pack size / unit cost for reorder qty + draft PO. |
+| `ReorderSetting` | Shop-level review period (default 14) and service-level z (default 1.65) for order-up-to math. |
 | `ShopAiSettings` | A shop's chosen AI provider plus its AES-256-GCM-encrypted API key. |
 | `AiUsageLog` | One row per AI chat call — powers the Settings usage/cost panel and the per-shop rate limiter. |
 | `ShopProfile` | Store-owner contact details synced from the Admin API (name, email, plan, country) plus the marketing/contact opt-in flag. Never customer data. |

@@ -17,6 +17,10 @@ export const action = async ({ request }) => {
     prisma.leadTimeSetting.deleteMany({ where: { shop } }),
     prisma.restockDate.deleteMany({ where: { shop } }),
     prisma.preorderSetting.deleteMany({ where: { shop } }),
+    // Reorder Brain: terms first (FK), then suppliers + shop defaults.
+    prisma.skuSupplierTerms.deleteMany({ where: { shop } }),
+    prisma.supplier.deleteMany({ where: { shop } }),
+    prisma.reorderSetting.deleteMany({ where: { shop } }),
     prisma.aiUsageLog.deleteMany({ where: { shop } }),
     prisma.shopAiSettings.deleteMany({ where: { shop } }),
     prisma.shopProfile.deleteMany({ where: { shop } }),

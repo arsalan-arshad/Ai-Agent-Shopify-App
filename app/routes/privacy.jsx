@@ -4,7 +4,7 @@ export const loader = () =>
   publicPage(
     "Privacy Policy — AI Forecast Agent",
     `<h1>AI Forecast Agent — Privacy Policy</h1>
-<p><em>Last updated: October 1, 2026</em></p>
+<p><em>Last updated: October 28, 2026</em></p>
 <p>
   AI Forecast Agent (&quot;the app&quot;) is a Shopify app that forecasts inventory demand
   from your store&apos;s own order history. This policy explains exactly what data the app
@@ -22,10 +22,12 @@ export const loader = () =>
     order ID, SKU, quantity, and date.</li>
   <li><strong>Store settings you enter</strong>: per-SKU or shop-wide reorder lead times;
     merchant-entered restock dates (SKU, expected arrival date, and optional quantity);
-    pre-order cover thresholds (switch-on and switch-off days of cover); and the AI
-    provider (Google Gemini or Anthropic Claude) and API key you choose to add in
-    Settings. Your API key is encrypted at rest; only its last four characters are ever
-    displayed back to you, for confirmation.</li>
+    pre-order cover thresholds (switch-on and switch-off days of cover); merchant-entered
+    suppliers and per-SKU supplier terms (lead time, MOQ, pack size, unit cost) plus
+    reorder defaults (review period and service-level z) for recommend-only draft
+    purchase orders; and the AI provider (Google Gemini or Anthropic Claude) and API key
+    you choose to add in Settings. Your API key is encrypted at rest; only its last four
+    characters are ever displayed back to you, for confirmation.</li>
   <li><strong>AI usage metering</strong>: number of questions asked and estimated token
     cost per request, used only to enforce a rate limit and show you your own usage in
     Settings.</li>
@@ -68,8 +70,9 @@ export const loader = () =>
 <ul>
   <li>Uninstalling the app deletes your session credentials immediately.</li>
   <li>Forecast history, lead-time settings, restock dates, pre-order cover thresholds,
-    AI provider settings, store contact details, and feedback are kept briefly in case
-    you reinstall, then permanently deleted — in line with Shopify&apos;s mandatory
+    suppliers and SKU supplier terms, reorder defaults, AI provider settings, store
+    contact details, and feedback are kept briefly in case you reinstall, then
+    permanently deleted — in line with Shopify&apos;s mandatory
     <code>shop/redact</code> webhook, typically ~48 hours after uninstall.</li>
   <li>Because we never store customer-identifying data, there is nothing to export or erase
     when Shopify&apos;s <code>customers/data_request</code> or

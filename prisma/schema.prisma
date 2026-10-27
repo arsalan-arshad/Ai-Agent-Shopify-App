@@ -184,3 +184,50 @@ model PreorderSetting {
   switchOffCoverDays Int      @default(7)
   updatedAt          DateTime @updatedAt
 }
+
+/// Merchant-entered supplier for Reorder Brain (v0). App database only —
+/// no Shopify catalog writes, no new scopes. Deleted on shop/redact.
+model Supplier {
+  id                  Int                @id @default(autoincrement())
+  shop                String
+  name                String
+  defaultLeadTimeDays Int                @default(14)
+  notes               String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  terms               SkuSupplierTerms[]
+
+  @@unique([shop, name], name: "shop_supplier_name")
+  @@index([shop])
+}
+
+/// Per-SKU supplier terms (lead time, MOQ, pack size, unit cost).
+/// One supplier binding per SKU in v0. Deleted on shop/redact (also via
+/// Supplier cascade).
+model SkuSupplierTerms {
+  id           Int      @id @default(autoincrement())
+  shop         String
+  sku          String
+  supplierId   Int
+  leadTimeDays Int?
+  moq          Int?
+  packSize     Int?
+  unitCost     Float?
+  updatedAt    DateTime @updatedAt
+  supplier     Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([shop, sku], name: "shop_sku_terms")
+  @@index([shop])
+  @@index([supplierId])
+}
+
+/// Shop-level reorder defaults. reviewDays = review period in the
+/// order-up-to formula; serviceLevelZ scales safety stock (~1.65 ≈ 95%).
+/// Deleted on shop/redact. DraftPo history is deferred to v1.
+model ReorderSetting {
+  id            Int      @id @default(autoincrement())
+  shop          String   @unique
+  reviewDays    Int      @default(14)
+  serviceLevelZ Float    @default(1.65)
+  updatedAt     DateTime @updatedAt
+}
