@@ -93,7 +93,7 @@ Free plan**.
     day — plus a copyable summary for their existing pre-order app.
   - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update
     (SPEC §6). Optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
-  - Planning docs live in [`../05-forecast-preorder-switch/`](../05-forecast-preorder-switch/).
+  - Planning docs: planning blueprint, kept outside this repo.
 
 - **Webhook Pipeline & Data Integrity**:
   - Delta-based order tracking (`orders/create` + `orders/updated` → one handler,
@@ -105,8 +105,9 @@ Free plan**.
   - The full mandatory compliance webhook set — `customers/data_request`, `customers/redact`,
     `shop/redact`, plus `app/uninstalled` — all declared in `shopify.app.toml`, all verified
     via `authenticate.webhook`'s built-in HMAC check. `shop/redact` tears down every
-    shop-keyed table (`DailyUsage`, `ProcessedOrder`, `LeadTimeSetting`, `AiUsageLog`,
-    `ShopAiSettings`, `ShopProfile`, `Feedback`, `Session`) in one Prisma transaction.
+    shop-keyed table (`DailyUsage`, `ProcessedOrder`, `LeadTimeSetting`, `RestockDate`,
+    `PreorderSetting`, `AiUsageLog`, `ShopAiSettings`, `ShopProfile`, `Feedback`,
+    `Session`) in one Prisma transaction.
   - `Session` carries `refreshToken`/`refreshTokenExpires` for Shopify's expiring-offline-token
     requirement (mandatory for all public apps from January 2027).
 
@@ -156,7 +157,7 @@ app/
 └── root.jsx                          # App Bridge script (gated to /app/* only), favicons.
 
 prisma/
-├── schema.prisma                     # 8 models — see section 4.
+├── schema.prisma                     # 10 models — see section 4.
 └── migrations/                       # Hand-authored SQL, applied via `prisma migrate
                                        # deploy` on every deploy (see section 7).
 ```
@@ -176,6 +177,8 @@ Prisma supports one database provider per project, so SQLite was dropped entirel
 | `DailyUsage` | One row per SKU per day per shop — the forecasting engine's raw input. Populated by the orders webhook and the install-time backfill. |
 | `ProcessedOrder` | The last recorded `{sku: quantity}` snapshot per order, so a redelivered/edited webhook only applies the delta instead of double-counting. |
 | `LeadTimeSetting` | Per-SKU or shop-wide (`sku: ""`) reorder lead time, editable from Settings. |
+| `RestockDate` | Per-SKU expected restock arrival (date + optional qty). Informational for the recommend-only pre-order card; no catalog writes. |
+| `PreorderSetting` | Shop-level switch-on / switch-off cover-day thresholds for pre-order recommendations (defaults 3 / 7). |
 | `ShopAiSettings` | A shop's chosen AI provider plus its AES-256-GCM-encrypted API key. |
 | `AiUsageLog` | One row per AI chat call — powers the Settings usage/cost panel and the per-shop rate limiter. |
 | `ShopProfile` | Store-owner contact details synced from the Admin API (name, email, plan, country) plus the marketing/contact opt-in flag. Never customer data. |

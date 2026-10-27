@@ -104,8 +104,8 @@ export const action = async ({ request }) => {
     }
 
     if (intent === "savePreorderSetting") {
-      const switchOnCoverDays = parseInt(formData.get("switchOnCoverDays"), 10);
-      const switchOffCoverDays = parseInt(formData.get("switchOffCoverDays"), 10);
+      const switchOnCoverDays = formData.get("switchOnCoverDays")?.toString();
+      const switchOffCoverDays = formData.get("switchOffCoverDays")?.toString();
       await setPreorderSetting(shop, switchOnCoverDays, switchOffCoverDays);
       return json({ ok: true, intent });
     }
@@ -723,6 +723,7 @@ export default function Settings() {
                       value={restockSku}
                       onChange={setRestockSku}
                       autoComplete="off"
+                      helpText="Must match your catalog SKU exactly (case-sensitive)."
                     />
                     <TextField
                       label="Restock date"
@@ -731,6 +732,7 @@ export default function Settings() {
                       value={restockDate}
                       onChange={setRestockDateInput}
                       autoComplete="off"
+                      helpText="Dates are interpreted in UTC."
                     />
                     <TextField
                       label="Expected qty (optional)"

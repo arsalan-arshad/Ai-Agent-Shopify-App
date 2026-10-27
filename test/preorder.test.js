@@ -12,7 +12,7 @@ import {
   formatDayCount,
 } from "../app/lib/preorder.js";
 
-// README worked example (05-forecast-preorder-switch):
+// README worked example (planning blueprint, kept outside this repo):
 // SKU Y: 120 in stock · demand 8/day · restock in 29 days.
 // Days of cover 15 → gap 14 → units at risk 112 → switch-on day 12.
 

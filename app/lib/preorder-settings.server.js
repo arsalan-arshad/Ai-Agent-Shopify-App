@@ -1,4 +1,8 @@
 import prisma from "./db.server.js";
+import {
+  validateCoverDays,
+  validateOptionalQty,
+} from "./preorder-validation.js";
 
 /** SPEC defaults — hysteresis requires switch-off > switch-on. */
 export const DEFAULT_SWITCH_ON_COVER_DAYS = 3;
@@ -29,24 +33,25 @@ export async function getPreorderSetting(shop) {
 /**
  * Upserts shop-level cover thresholds. Enforces switchOff > switchOn so the
  * hysteresis pair stays valid (see preorder.js revertRecommendation).
+ * Accepts raw form strings or numbers; rejects non-integers (e.g. "3.5").
  */
 export async function setPreorderSetting(shop, switchOnCoverDays, switchOffCoverDays) {
-  if (!Number.isFinite(switchOnCoverDays) || switchOnCoverDays < 0) {
-    throw new Error("Switch-on cover days must be zero or a positive number.");
-  }
-  if (!Number.isFinite(switchOffCoverDays) || switchOffCoverDays < 0) {
-    throw new Error("Switch-off cover days must be zero or a positive number.");
-  }
-  if (!(switchOffCoverDays > switchOnCoverDays)) {
-    throw new Error(
-      "Switch-off cover days must be greater than switch-on cover days (hysteresis).",
-    );
+  const parsed = validateCoverDays(switchOnCoverDays, switchOffCoverDays);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
   }
 
   return prisma.preorderSetting.upsert({
     where: { shop },
-    update: { switchOnCoverDays, switchOffCoverDays },
-    create: { shop, switchOnCoverDays, switchOffCoverDays },
+    update: {
+      switchOnCoverDays: parsed.switchOnCoverDays,
+      switchOffCoverDays: parsed.switchOffCoverDays,
+    },
+    create: {
+      shop,
+      switchOnCoverDays: parsed.switchOnCoverDays,
+      switchOffCoverDays: parsed.switchOffCoverDays,
+    },
   });
 }
 
@@ -75,18 +80,15 @@ export async function setRestockDate(shop, sku, date, qty = null) {
     throw new Error("Restock date must be a valid calendar date (YYYY-MM-DD).");
   }
 
-  let normalizedQty = null;
-  if (qty !== null && qty !== undefined && qty !== "") {
-    normalizedQty = parseInt(qty, 10);
-    if (!Number.isFinite(normalizedQty) || normalizedQty < 0) {
-      throw new Error("Expected quantity must be zero or a positive whole number.");
-    }
+  const qtyResult = validateOptionalQty(qty);
+  if (!qtyResult.ok) {
+    throw new Error(qtyResult.error);
   }
 
   return prisma.restockDate.upsert({
     where: { shop_sku_restock: { shop, sku: normalizedSku } },
-    update: { date: parsed, qty: normalizedQty },
-    create: { shop, sku: normalizedSku, date: parsed, qty: normalizedQty },
+    update: { date: parsed, qty: qtyResult.value },
+    create: { shop, sku: normalizedSku, date: parsed, qty: qtyResult.value },
   });
 }
 

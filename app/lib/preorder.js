@@ -4,8 +4,8 @@
  * Pure / deterministic — no I/O, Prisma, Shopify, or AI. Numbers here feed
  * a later recommendation card; the agent may only explain them.
  *
- * Formulas and the worked example live in the planning blueprint:
- * ../05-forecast-preorder-switch/README.md and docs/SPEC.md
+ * Formulas and the worked example live in the planning blueprint,
+ * kept outside this repo.
  */
 
 /**
