@@ -29,9 +29,10 @@ charge $50–$300/mo for what amounts to a wrapper around a single LLM call.
    and every number is traceable back to a formula a merchant (or a reviewer) can audit.
 2. **A grounded conversational AI co-pilot** (`app/lib/ai-agent.js`) that sits *on top of*
    those numbers to explain and answer follow-up questions. The agent's system prompt is
-   built from a server-side forecast snapshot only — it is explicitly instructed never to
-   invent a figure, and the snapshot is rebuilt from the database and the Shopify Admin API
-   on every request rather than trusted from the client.
+   built from a server-side forecast snapshot only — prompt-enforced, tested that the
+   snapshot is embedded (and instructed never to invent a gap, restock date, or
+   units-at-risk figure). The snapshot is rebuilt from the database and the Shopify Admin
+   API on every request rather than trusted from the client.
 
 That split — auditable math underneath, a conversational interface on top, never the reverse
 — is the core differentiator from a plain "GPT wrapper" app.
@@ -67,9 +68,9 @@ Free plan**.
     (`app/lib/crypto.server.js`), keyed by a 32-byte `ENCRYPTION_KEY` that never leaves
     environment variables.
   - Strict grounding: the chat endpoint (`api.agent-chat.jsx`) rebuilds the forecast snapshot
-    server-side on every call instead of trusting a client-supplied one, and the agent's
-    system prompt instructs it to answer only from that JSON and say so plainly when the data
-    doesn't cover the question.
+    server-side on every call instead of trusting a client-supplied one. Prompt-enforced,
+    tested that the snapshot is embedded; the agent is instructed to answer only from that
+    JSON and never invent a gap, restock date, or units-at-risk figure.
   - Per-shop rate limiting — 20 AI questions per rolling 60-second window, backed by the same
     `AiUsageLog` table used for cost metering (`app/lib/ai-settings.server.js`,
     `isRateLimited`).

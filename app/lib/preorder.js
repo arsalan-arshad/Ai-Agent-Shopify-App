@@ -85,9 +85,17 @@ export function preorderRecommendation({
     return none;
   }
 
-  const projectedStockoutDay = Number.isFinite(projectedStockoutDayInput)
-    ? projectedStockoutDayInput
-    : stock / dailyDemand;
+  // Explicit non-finite stockout (Infinity = never stocks out, NaN) → none.
+  // Fall back to stock/demand only when the argument is omitted (undefined).
+  let projectedStockoutDay;
+  if (projectedStockoutDayInput !== undefined) {
+    if (!Number.isFinite(projectedStockoutDayInput)) {
+      return none;
+    }
+    projectedStockoutDay = projectedStockoutDayInput;
+  } else {
+    projectedStockoutDay = stock / dailyDemand;
+  }
   if (!(projectedStockoutDay >= 0)) {
     return none;
   }
@@ -124,6 +132,56 @@ export function isRestockDateStale(restockDay) {
 export function formatDayCount(n) {
   if (!Number.isFinite(n)) return "—";
   return String(Math.round(n));
+}
+
+/**
+ * Whole-number display figures for the recommendation card / summary.
+ * Prefers gap = rounded(restock) − rounded(cover) when that still shows a
+ * positive gap (so the card adds up); otherwise Math.round(gapDays).
+ * unitsAtRisk is Math.round of demand × that whole-day gap.
+ * Engine math in preorderRecommendation stays unrounded.
+ *
+ * @param {{
+ *   daysOfCover: number,
+ *   gapDays: number,
+ *   switchOnDay: number | null | undefined,
+ *   avgDailyUsage: number,
+ *   restockDay?: number | null,
+ * }} args
+ * @returns {{
+ *   cover: number,
+ *   gap: number,
+ *   switchOn: number | null,
+ *   restock: number | null,
+ *   units: number,
+ * }}
+ */
+export function preorderDisplayFigures({
+  daysOfCover,
+  gapDays,
+  switchOnDay,
+  avgDailyUsage,
+  restockDay,
+}) {
+  const cover = Math.round(daysOfCover);
+  const gapRounded = Math.round(gapDays);
+  const restock = Number.isFinite(restockDay) ? Math.round(restockDay) : null;
+  const switchOn = Number.isFinite(switchOnDay) ? Math.round(switchOnDay) : null;
+
+  let gap = gapRounded;
+  if (restock != null && Number.isFinite(daysOfCover)) {
+    const fromEndpoints = restock - cover;
+    if (fromEndpoints > 0) {
+      gap = fromEndpoints;
+    }
+  }
+
+  const units =
+    Number.isFinite(avgDailyUsage) && avgDailyUsage > 0 && gap > 0
+      ? Math.round(avgDailyUsage * gap)
+      : 0;
+
+  return { cover, gap, switchOn, restock, units };
 }
 
 /**
@@ -190,16 +248,18 @@ function startOfUtcDay(date) {
  * Plain-text summary a merchant can paste into their existing pre-order
  * app. Only includes numbers already computed by the engine — never
  * invents figures. Returns null when there is no candidate recommendation.
+ * Day counts and units are whole numbers from preorderDisplayFigures.
  *
  * @param {{
  *   sku: string,
  *   title?: string,
  *   restockDate: string,
  *   gapDays: number,
- *   unitsAtRisk: number,
+ *   unitsAtRisk?: number,
  *   switchOnDay: number,
  *   daysOfCover: number,
  *   avgDailyUsage: number,
+ *   restockDay?: number | null,
  * }} args
  * @returns {string | null}
  */
@@ -208,25 +268,28 @@ export function formatPreorderSummary({
   title,
   restockDate,
   gapDays,
-  unitsAtRisk,
   switchOnDay,
   daysOfCover,
   avgDailyUsage,
+  restockDay,
 }) {
   if (!(gapDays > 0) || !sku || !restockDate) return null;
 
   const label = title && title !== sku ? `${sku} (${title})` : sku;
-  const cover = formatDayCount(daysOfCover);
   const demand = Number.isFinite(avgDailyUsage) ? round2(avgDailyUsage) : "n/a";
-  const switchOn = formatDayCount(switchOnDay);
-  const gap = formatDayCount(gapDays);
-  const gapNum = Number(gap);
+  const { cover, gap, switchOn, units } = preorderDisplayFigures({
+    daysOfCover,
+    gapDays,
+    switchOnDay,
+    avgDailyUsage,
+    restockDay,
+  });
 
   return [
     `Pre-order recommendation for ${label}`,
     `• Projected stockout: day ${cover} (≈${demand}/day demand)`,
     `• Restock expected: ${restockDate}`,
-    `• Gap: ${gap} day${gapNum === 1 ? "" : "s"} · ~${unitsAtRisk} units at risk`,
+    `• Gap: ${gap} day${gap === 1 ? "" : "s"} · ~${units} units at risk`,
     `• Suggested switch-on: around day ${switchOn} (while cover remains)`,
     `• Paste into your pre-order app — Agent Forecast does not change your catalog.`,
   ].join("\n");

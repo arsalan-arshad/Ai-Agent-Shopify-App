@@ -23,7 +23,7 @@ import { buildForecastSnapshot } from "../lib/forecast-snapshot.server.js";
 import { getTrackedSkus } from "../lib/usage-history.server.js";
 import { backfillUsageHistory } from "../lib/backfill.server.js";
 import { getShopAiSettings } from "../lib/ai-settings.server.js";
-import { formatDayCount } from "../lib/preorder.js";
+import { preorderDisplayFigures } from "../lib/preorder.js";
 
 /**
  * Usage history comes from the DailyUsage table, populated continuously by
@@ -232,11 +232,14 @@ export default function Dashboard() {
             {preorderCandidates.map((item) => {
               const rec = item.preorder.recommendation;
               const summary = item.preorder.summary;
-              const gapLabel = formatDayCount(rec.gapDays);
-              const switchOnLabel = formatDayCount(rec.switchOnDay);
-              const coverLabel = formatDayCount(item.daysOfCover);
-              const restockDayLabel = formatDayCount(item.preorder.restockDay);
-              const gapSingular = Number(gapLabel) === 1;
+              const display = preorderDisplayFigures({
+                daysOfCover: item.daysOfCover,
+                gapDays: rec.gapDays,
+                switchOnDay: rec.switchOnDay,
+                avgDailyUsage: item.avgDailyUsage,
+                restockDay: item.preorder.restockDay,
+              });
+              const gapSingular = display.gap === 1;
               return (
                 <Card key={`preorder-${item.sku}`}>
                   <BlockStack gap="300">
@@ -248,12 +251,12 @@ export default function Dashboard() {
                     </InlineStack>
                     <Text as="p">
                       {item.title && item.title !== item.sku ? `${item.title} · ` : ""}
-                      Stockout ~day {coverLabel}
+                      Stockout ~day {display.cover}
                       , restock {item.preorder.restockDate}
-                      {" "}(day {restockDayLabel})
-                      — gap {gapLabel} day{gapSingular ? "" : "s"}
-                      , ~{rec.unitsAtRisk} units at risk.
-                      Suggested switch-on around day {switchOnLabel}.
+                      {" "}(day {display.restock ?? "—"})
+                      — gap {display.gap} day{gapSingular ? "" : "s"}
+                      , ~{display.units} units at risk.
+                      Suggested switch-on around day {display.switchOn ?? "—"}.
                     </Text>
                     <Text as="p" tone="subdued">
                       This app does not change your catalog. Copy the summary

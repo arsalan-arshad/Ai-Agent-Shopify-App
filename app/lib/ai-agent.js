@@ -16,7 +16,10 @@ export class NoApiKeyError extends Error {
   }
 }
 
-function buildSystemPrompt(forecastSnapshot) {
+/** Builds the grounded system prompt for the forecast agent. Exported for
+ * regression tests that assert the snapshot is embedded and the prompt
+ * forbids inventing gap / restock / units-at-risk figures. */
+export function buildSystemPrompt(forecastSnapshot) {
   return `You are an inventory planning assistant embedded in a Shopify app.
 You answer merchant questions ONLY using the forecast data provided below.
 Never invent sales numbers, stock levels, or dates that aren't in the data.
