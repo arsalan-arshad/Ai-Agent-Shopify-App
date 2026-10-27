@@ -29,9 +29,10 @@ charge $50–$300/mo for what amounts to a wrapper around a single LLM call.
    and every number is traceable back to a formula a merchant (or a reviewer) can audit.
 2. **A grounded conversational AI co-pilot** (`app/lib/ai-agent.js`) that sits *on top of*
    those numbers to explain and answer follow-up questions. The agent's system prompt is
-   built from a server-side forecast snapshot only — it is explicitly instructed never to
-   invent a figure, and the snapshot is rebuilt from the database and the Shopify Admin API
-   on every request rather than trusted from the client.
+   built from a server-side forecast snapshot only — prompt-enforced, tested that the
+   snapshot is embedded (and instructed never to invent a gap, restock date, or
+   units-at-risk figure). The snapshot is rebuilt from the database and the Shopify Admin
+   API on every request rather than trusted from the client.
 
 That split — auditable math underneath, a conversational interface on top, never the reverse
 — is the core differentiator from a plain "GPT wrapper" app.
@@ -67,9 +68,9 @@ Free plan**.
     (`app/lib/crypto.server.js`), keyed by a 32-byte `ENCRYPTION_KEY` that never leaves
     environment variables.
   - Strict grounding: the chat endpoint (`api.agent-chat.jsx`) rebuilds the forecast snapshot
-    server-side on every call instead of trusting a client-supplied one, and the agent's
-    system prompt instructs it to answer only from that JSON and say so plainly when the data
-    doesn't cover the question.
+    server-side on every call instead of trusting a client-supplied one. Prompt-enforced,
+    tested that the snapshot is embedded; the agent is instructed to answer only from that
+    JSON and never invent a gap, restock date, or units-at-risk figure.
   - Per-shop rate limiting — 20 AI questions per rolling 60-second window, backed by the same
     `AiUsageLog` table used for cost metering (`app/lib/ai-settings.server.js`,
     `isRateLimited`).
@@ -84,7 +85,15 @@ Free plan**.
   - Polaris 13 dashboard with a forecast table, inventory-health status tags, and an in-app
     AI chat drawer.
   - Settings page: AI provider key management, usage/cost panel, per-SKU or shop-wide lead
-    times, and a merchant contact/feedback card.
+    times, pre-order cover thresholds + restock dates, and a merchant contact/feedback card.
+
+- **Pre-order gap recommendations (v0, recommend-only)** (`app/lib/preorder.js`):
+  - When a merchant enters a per-SKU restock date, the engine compares it to days of cover
+    and surfaces a dashboard card with gap days, units at risk, and a suggested switch-on
+    day — plus a copyable summary for their existing pre-order app.
+  - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update
+    (SPEC §6). Optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
+  - Planning docs: planning blueprint, kept outside this repo.
 
 - **Webhook Pipeline & Data Integrity**:
   - Delta-based order tracking (`orders/create` + `orders/updated` → one handler,
@@ -96,8 +105,9 @@ Free plan**.
   - The full mandatory compliance webhook set — `customers/data_request`, `customers/redact`,
     `shop/redact`, plus `app/uninstalled` — all declared in `shopify.app.toml`, all verified
     via `authenticate.webhook`'s built-in HMAC check. `shop/redact` tears down every
-    shop-keyed table (`DailyUsage`, `ProcessedOrder`, `LeadTimeSetting`, `AiUsageLog`,
-    `ShopAiSettings`, `ShopProfile`, `Feedback`, `Session`) in one Prisma transaction.
+    shop-keyed table (`DailyUsage`, `ProcessedOrder`, `LeadTimeSetting`, `RestockDate`,
+    `PreorderSetting`, `AiUsageLog`, `ShopAiSettings`, `ShopProfile`, `Feedback`,
+    `Session`) in one Prisma transaction.
   - `Session` carries `refreshToken`/`refreshTokenExpires` for Shopify's expiring-offline-token
     requirement (mandatory for all public apps from January 2027).
 
@@ -111,6 +121,9 @@ app/
 │   ├── forecasting.js                # Pure math: WMA, reorder point, days-of-cover,
 │   │                                  # status classification — zero dependencies, zero
 │   │                                  # side effects, zero AI calls. The core of the app.
+│   ├── preorder.js                   # Pure pre-order gap / recommendation math + copy
+│   │                                  # summary helpers (recommend-only v0).
+│   ├── preorder-settings.server.js   # Restock dates + switch-on/off cover thresholds.
 │   ├── forecast-snapshot.server.js   # Builds the forecast snapshot from live Admin API +
 │   │                                  # DB (paginated, multi-location aware). The one place
 │   │                                  # it's built — dashboard and chat both call this.
@@ -144,7 +157,7 @@ app/
 └── root.jsx                          # App Bridge script (gated to /app/* only), favicons.
 
 prisma/
-├── schema.prisma                     # 8 models — see section 4.
+├── schema.prisma                     # 10 models — see section 4.
 └── migrations/                       # Hand-authored SQL, applied via `prisma migrate
                                        # deploy` on every deploy (see section 7).
 ```
@@ -164,6 +177,8 @@ Prisma supports one database provider per project, so SQLite was dropped entirel
 | `DailyUsage` | One row per SKU per day per shop — the forecasting engine's raw input. Populated by the orders webhook and the install-time backfill. |
 | `ProcessedOrder` | The last recorded `{sku: quantity}` snapshot per order, so a redelivered/edited webhook only applies the delta instead of double-counting. |
 | `LeadTimeSetting` | Per-SKU or shop-wide (`sku: ""`) reorder lead time, editable from Settings. |
+| `RestockDate` | Per-SKU expected restock arrival (date + optional qty). Informational for the recommend-only pre-order card; no catalog writes. |
+| `PreorderSetting` | Shop-level switch-on / switch-off cover-day thresholds for pre-order recommendations (defaults 3 / 7). |
 | `ShopAiSettings` | A shop's chosen AI provider plus its AES-256-GCM-encrypted API key. |
 | `AiUsageLog` | One row per AI chat call — powers the Settings usage/cost panel and the per-shop rate limiter. |
 | `ShopProfile` | Store-owner contact details synced from the Admin API (name, email, plan, country) plus the marketing/contact opt-in flag. Never customer data. |
@@ -229,9 +244,10 @@ npm run stats       # scripts/stats.mjs — prints aggregate portfolio numbers (
 npx prisma studio   # inspect what a webhook handler or the backfill actually wrote
 ```
 
-An automated unit/integration test suite (Jest or Vitest around `forecasting.js` and the
-webhook delta logic in particular) is on the roadmap below and is one of the most useful
-places for a contribution — the math being pure functions makes it straightforward to test.
+Pre-order math already has a Node built-in test suite (`npm test` → `test/preorder.test.js`).
+Broader coverage around `forecasting.js` and the webhook delta logic is still on the roadmap
+below and remains one of the most useful places for a contribution — the math being pure
+functions makes it straightforward to test.
 
 ---
 
@@ -269,7 +285,9 @@ editing the TOML locally has no effect on Shopify's side until it's actually dep
 - [x] Multi-location inventory aggregation and per-SKU/shop-wide lead times
 - [x] Full mandatory GDPR/App Store compliance webhook set, with a real full-teardown redact
 - [x] OAuth install flow hardened against manual shop-domain entry (App Store 2.3.1)
-- [ ] Automated test suite (Jest/Vitest) around `forecasting.js` and the webhook delta logic
+- [x] Pre-order recommend-only v0 (gap math, restock dates, dashboard card, grounded AI)
+- [x] Node test suite for pre-order math (`npm test` / `test/preorder.test.js`)
+- [ ] Broader automated tests around `forecasting.js` and the webhook delta logic
 - [ ] Automated daily email/Slack stockout digest
 - [ ] Auto-draft Purchase Orders (would need a `write_inventory` scope — bigger App Store
       review bar, worth adding once there's real demand)

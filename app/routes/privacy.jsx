@@ -20,9 +20,11 @@ export const loader = () =>
     order twice, we also keep each order&apos;s ID together with the SKU quantities we
     recorded for it. We never store order totals, line-item prices, or anything beyond
     order ID, SKU, quantity, and date.</li>
-  <li><strong>Store settings you enter</strong>: per-SKU or shop-wide reorder lead times,
-    and the AI provider (Google Gemini or Anthropic Claude) and API key you choose to add
-    in Settings. Your API key is encrypted at rest; only its last four characters are ever
+  <li><strong>Store settings you enter</strong>: per-SKU or shop-wide reorder lead times;
+    merchant-entered restock dates (SKU, expected arrival date, and optional quantity);
+    pre-order cover thresholds (switch-on and switch-off days of cover); and the AI
+    provider (Google Gemini or Anthropic Claude) and API key you choose to add in
+    Settings. Your API key is encrypted at rest; only its last four characters are ever
     displayed back to you, for confirmation.</li>
   <li><strong>AI usage metering</strong>: number of questions asked and estimated token
     cost per request, used only to enforce a rate limit and show you your own usage in
@@ -65,8 +67,9 @@ export const loader = () =>
 <h2>Data retention and deletion</h2>
 <ul>
   <li>Uninstalling the app deletes your session credentials immediately.</li>
-  <li>Forecast history, lead-time settings, AI provider settings, store contact details,
-    and feedback are kept briefly in case you reinstall, then permanently deleted — in line with Shopify&apos;s mandatory
+  <li>Forecast history, lead-time settings, restock dates, pre-order cover thresholds,
+    AI provider settings, store contact details, and feedback are kept briefly in case
+    you reinstall, then permanently deleted — in line with Shopify&apos;s mandatory
     <code>shop/redact</code> webhook, typically ~48 hours after uninstall.</li>
   <li>Because we never store customer-identifying data, there is nothing to export or erase
     when Shopify&apos;s <code>customers/data_request</code> or

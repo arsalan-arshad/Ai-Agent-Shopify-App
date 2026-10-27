@@ -23,6 +23,7 @@ import { buildForecastSnapshot } from "../lib/forecast-snapshot.server.js";
 import { getTrackedSkus } from "../lib/usage-history.server.js";
 import { backfillUsageHistory } from "../lib/backfill.server.js";
 import { getShopAiSettings } from "../lib/ai-settings.server.js";
+import { preorderDisplayFigures } from "../lib/preorder.js";
 
 /**
  * Usage history comes from the DailyUsage table, populated continuously by
@@ -155,6 +156,9 @@ export default function Dashboard() {
   const preorderCandidates = forecastSnapshot.filter(
     (item) => item.preorder?.recommendation?.state === "candidate",
   );
+  const staleRestockItems = forecastSnapshot.filter(
+    (item) => item.preorder?.staleRestockDate,
+  );
 
   const handleCopySummary = async (summary) => {
     if (!summary) return;
@@ -212,9 +216,30 @@ export default function Dashboard() {
               </Banner>
             )}
 
+            {staleRestockItems.length > 0 && (
+              <Banner tone="warning" title="Update past restock dates">
+                <p>
+                  {staleRestockItems.length === 1
+                    ? `SKU ${staleRestockItems[0].sku} has a restock date in the past (${staleRestockItems[0].preorder.restockDate}).`
+                    : `${staleRestockItems.length} SKUs have restock dates in the past.`}{" "}
+                  Refresh the expected arrival in{" "}
+                  <Link url="/app/settings">Settings</Link> so gap
+                  recommendations stay accurate.
+                </p>
+              </Banner>
+            )}
+
             {preorderCandidates.map((item) => {
               const rec = item.preorder.recommendation;
               const summary = item.preorder.summary;
+              const display = preorderDisplayFigures({
+                daysOfCover: item.daysOfCover,
+                gapDays: rec.gapDays,
+                switchOnDay: rec.switchOnDay,
+                avgDailyUsage: item.avgDailyUsage,
+                restockDay: item.preorder.restockDay,
+              });
+              const gapSingular = display.gap === 1;
               return (
                 <Card key={`preorder-${item.sku}`}>
                   <BlockStack gap="300">
@@ -226,12 +251,12 @@ export default function Dashboard() {
                     </InlineStack>
                     <Text as="p">
                       {item.title && item.title !== item.sku ? `${item.title} · ` : ""}
-                      Stockout ~day {Number.isFinite(item.daysOfCover) ? item.daysOfCover : "—"}
+                      Stockout ~day {display.cover}
                       , restock {item.preorder.restockDate}
-                      {" "}(day {item.preorder.restockDay})
-                      — gap {rec.gapDays} day{rec.gapDays === 1 ? "" : "s"}
-                      , ~{rec.unitsAtRisk} units at risk.
-                      Suggested switch-on around day {rec.switchOnDay}.
+                      {" "}(day {display.restock ?? "—"})
+                      — gap {display.gap} day{gapSingular ? "" : "s"}
+                      , ~{display.units} units at risk.
+                      Suggested switch-on around day {display.switchOn ?? "—"}.
                     </Text>
                     <Text as="p" tone="subdued">
                       This app does not change your catalog. Copy the summary
