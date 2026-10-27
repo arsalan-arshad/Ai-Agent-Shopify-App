@@ -33,20 +33,43 @@ import {
   deleteRestockDate,
 } from "../lib/preorder-settings.server.js";
 import { daysUntilRestock, isRestockDateStale } from "../lib/preorder.js";
+import {
+  getReorderSetting,
+  setReorderSetting,
+  listSuppliers,
+  createSupplier,
+  deleteSupplier,
+  listSkuSupplierTerms,
+  setSkuSupplierTerms,
+  deleteSkuSupplierTerms,
+  importSkuSupplierTermsCsv,
+} from "../lib/reorder-settings.server.js";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [aiSettings, usage, leadTimes, marketingOptIn, preorderSetting, restockDates] =
-    await Promise.all([
-      getShopAiSettings(shop),
-      getUsageSummary(shop),
-      listLeadTimeSettings(shop),
-      getMarketingOptIn(shop),
-      getPreorderSetting(shop),
-      listRestockDates(shop),
-    ]);
+  const [
+    aiSettings,
+    usage,
+    leadTimes,
+    marketingOptIn,
+    preorderSetting,
+    restockDates,
+    reorderSetting,
+    suppliers,
+    skuTerms,
+  ] = await Promise.all([
+    getShopAiSettings(shop),
+    getUsageSummary(shop),
+    listLeadTimeSettings(shop),
+    getMarketingOptIn(shop),
+    getPreorderSetting(shop),
+    listRestockDates(shop),
+    getReorderSetting(shop),
+    listSuppliers(shop),
+    listSkuSupplierTerms(shop),
+  ]);
 
   return json({
     aiSettings,
@@ -58,6 +81,22 @@ export const loader = async ({ request }) => {
       sku: r.sku,
       date: r.date.toISOString().slice(0, 10),
       qty: r.qty,
+    })),
+    reorderSetting,
+    suppliers: suppliers.map((s) => ({
+      id: s.id,
+      name: s.name,
+      defaultLeadTimeDays: s.defaultLeadTimeDays,
+      notes: s.notes,
+    })),
+    skuTerms: skuTerms.map((t) => ({
+      sku: t.sku,
+      supplierId: t.supplierId,
+      supplierName: t.supplier?.name ?? "—",
+      leadTimeDays: t.leadTimeDays,
+      moq: t.moq,
+      packSize: t.packSize,
+      unitCost: t.unitCost,
     })),
   });
 };
@@ -123,6 +162,62 @@ export const action = async ({ request }) => {
       const sku = formData.get("sku")?.toString().trim();
       await deleteRestockDate(shop, sku);
       return json({ ok: true, intent });
+    }
+
+    if (intent === "saveReorderSetting") {
+      const reviewDays = formData.get("reviewDays")?.toString();
+      const serviceLevelZ = formData.get("serviceLevelZ")?.toString();
+      await setReorderSetting(shop, reviewDays, serviceLevelZ);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "createSupplier") {
+      const name = formData.get("name")?.toString();
+      const defaultLeadTimeDays = formData.get("defaultLeadTimeDays")?.toString();
+      const notes = formData.get("notes")?.toString();
+      await createSupplier(shop, name, defaultLeadTimeDays, notes);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "deleteSupplier") {
+      const id = formData.get("id")?.toString();
+      await deleteSupplier(shop, id);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "saveSkuTerms") {
+      await setSkuSupplierTerms(shop, {
+        sku: formData.get("sku")?.toString(),
+        supplierId: formData.get("supplierId")?.toString(),
+        leadTimeDays: formData.get("leadTimeDays")?.toString(),
+        moq: formData.get("moq")?.toString(),
+        packSize: formData.get("packSize")?.toString(),
+        unitCost: formData.get("unitCost")?.toString(),
+      });
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "deleteSkuTerms") {
+      const sku = formData.get("sku")?.toString();
+      await deleteSkuSupplierTerms(shop, sku);
+      return json({ ok: true, intent });
+    }
+
+    if (intent === "importSkuTermsCsv") {
+      const csvText = formData.get("csvText")?.toString() ?? "";
+      const result = await importSkuSupplierTermsCsv(shop, csvText);
+      if (result.ok === 0 && result.errors.length > 0) {
+        return json(
+          {
+            ok: false,
+            intent,
+            error: result.errors.slice(0, 5).join(" "),
+            importResult: result,
+          },
+          { status: 400 },
+        );
+      }
+      return json({ ok: true, intent, importResult: result });
     }
 
     return json({ ok: false, error: "Unknown action." }, { status: 400 });
@@ -215,6 +310,9 @@ export default function Settings() {
     marketingOptIn,
     preorderSetting,
     restockDates,
+    reorderSetting,
+    suppliers,
+    skuTerms,
   } = useLoaderData();
 
   const [provider, setProvider] = useState(aiSettings?.provider ?? "gemini");
@@ -243,6 +341,36 @@ export default function Settings() {
   const [restockSaving, setRestockSaving] = useState(false);
   const [restockResult, setRestockResult] = useState(null);
   const [restockDeletingSku, setRestockDeletingSku] = useState(null);
+
+  const [reviewDays, setReviewDays] = useState(
+    String(reorderSetting?.reviewDays ?? 14),
+  );
+  const [serviceLevelZ, setServiceLevelZ] = useState(
+    String(reorderSetting?.serviceLevelZ ?? 1.65),
+  );
+  const [reorderSaving, setReorderSaving] = useState(false);
+  const [reorderResult, setReorderResult] = useState(null);
+
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [newSupplierLead, setNewSupplierLead] = useState("14");
+  const [newSupplierNotes, setNewSupplierNotes] = useState("");
+  const [supplierSaving, setSupplierSaving] = useState(false);
+  const [supplierResult, setSupplierResult] = useState(null);
+  const [supplierDeletingId, setSupplierDeletingId] = useState(null);
+
+  const [termsSku, setTermsSku] = useState("");
+  const [termsSupplierId, setTermsSupplierId] = useState(
+    suppliers?.[0] ? String(suppliers[0].id) : "",
+  );
+  const [termsLead, setTermsLead] = useState("");
+  const [termsMoq, setTermsMoq] = useState("");
+  const [termsPack, setTermsPack] = useState("");
+  const [termsCost, setTermsCost] = useState("");
+  const [termsSaving, setTermsSaving] = useState(false);
+  const [termsResult, setTermsResult] = useState(null);
+  const [termsDeletingSku, setTermsDeletingSku] = useState(null);
+  const [csvText, setCsvText] = useState("");
+  const [csvSaving, setCsvSaving] = useState(false);
 
   const [optIn, setOptIn] = useState(marketingOptIn);
   const [optInSaving, setOptInSaving] = useState(false);
@@ -423,6 +551,169 @@ export default function Settings() {
     }
   };
 
+  const handleSaveReorderSetting = async (event) => {
+    event.preventDefault();
+    if (reorderSaving) return;
+    setReorderSaving(true);
+    setReorderResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "saveReorderSetting");
+      fd.set("reviewDays", reviewDays);
+      fd.set("serviceLevelZ", serviceLevelZ);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setReorderResult(data);
+    } catch (err) {
+      console.error("Save reorder defaults failed:", err);
+      setReorderResult({
+        ok: false,
+        intent: "saveReorderSetting",
+        error: err.message || "Couldn't save — please try again.",
+      });
+    } finally {
+      setReorderSaving(false);
+    }
+  };
+
+  const handleCreateSupplier = async (event) => {
+    event.preventDefault();
+    if (supplierSaving) return;
+    setSupplierSaving(true);
+    setSupplierResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "createSupplier");
+      fd.set("name", newSupplierName);
+      fd.set("defaultLeadTimeDays", newSupplierLead);
+      fd.set("notes", newSupplierNotes);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setSupplierResult(data);
+      if (data?.ok) {
+        setNewSupplierName("");
+        setNewSupplierNotes("");
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error("Create supplier failed:", err);
+      setSupplierResult({
+        ok: false,
+        intent: "createSupplier",
+        error: err.message || "Couldn't save — please try again.",
+      });
+    } finally {
+      setSupplierSaving(false);
+    }
+  };
+
+  const handleDeleteSupplier = async (id) => {
+    if (supplierDeletingId) return;
+    setSupplierDeletingId(id);
+    setSupplierResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "deleteSupplier");
+      fd.set("id", String(id));
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setSupplierResult(data);
+      if (data?.ok) window.location.reload();
+    } catch (err) {
+      console.error("Delete supplier failed:", err);
+      setSupplierResult({
+        ok: false,
+        intent: "deleteSupplier",
+        error: err.message || "Couldn't delete — please try again.",
+      });
+    } finally {
+      setSupplierDeletingId(null);
+    }
+  };
+
+  const handleSaveSkuTerms = async (event) => {
+    event.preventDefault();
+    if (termsSaving) return;
+    setTermsSaving(true);
+    setTermsResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "saveSkuTerms");
+      fd.set("sku", termsSku);
+      fd.set("supplierId", termsSupplierId);
+      fd.set("leadTimeDays", termsLead);
+      fd.set("moq", termsMoq);
+      fd.set("packSize", termsPack);
+      fd.set("unitCost", termsCost);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setTermsResult(data);
+      if (data?.ok) {
+        setTermsSku("");
+        setTermsLead("");
+        setTermsMoq("");
+        setTermsPack("");
+        setTermsCost("");
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error("Save SKU terms failed:", err);
+      setTermsResult({
+        ok: false,
+        intent: "saveSkuTerms",
+        error: err.message || "Couldn't save — please try again.",
+      });
+    } finally {
+      setTermsSaving(false);
+    }
+  };
+
+  const handleDeleteSkuTerms = async (skuToDelete) => {
+    if (termsDeletingSku) return;
+    setTermsDeletingSku(skuToDelete);
+    setTermsResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "deleteSkuTerms");
+      fd.set("sku", skuToDelete);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setTermsResult(data);
+      if (data?.ok) window.location.reload();
+    } catch (err) {
+      console.error("Delete SKU terms failed:", err);
+      setTermsResult({
+        ok: false,
+        intent: "deleteSkuTerms",
+        error: err.message || "Couldn't clear — please try again.",
+      });
+    } finally {
+      setTermsDeletingSku(null);
+    }
+  };
+
+  const handleImportCsv = async (event) => {
+    event.preventDefault();
+    if (csvSaving) return;
+    setCsvSaving(true);
+    setTermsResult(null);
+    try {
+      const fd = new FormData();
+      fd.set("_action", "importSkuTermsCsv");
+      fd.set("csvText", csvText);
+      const data = await postWithSessionToken(SETTINGS_ACTION_URL, fd);
+      setTermsResult(data);
+      if (data?.ok) {
+        setCsvText("");
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error("Import SKU terms CSV failed:", err);
+      setTermsResult({
+        ok: false,
+        intent: "importSkuTermsCsv",
+        error: err.message || "Couldn't import — please try again.",
+      });
+    } finally {
+      setCsvSaving(false);
+    }
+  };
+
   const leadTimeRows = leadTimes.map((lt) => [
     // sku is "" (not null) for the shop-wide default row -- see
     // usage-history.server.js#setLeadTimeDays -- so this must be a
@@ -460,6 +751,47 @@ export default function Settings() {
       </Button>,
     ];
   });
+
+  const supplierRows = (suppliers ?? []).map((s) => [
+    s.name,
+    `${s.defaultLeadTimeDays} days`,
+    s.notes ?? "—",
+    <Button
+      key={`del-sup-${s.id}`}
+      tone="critical"
+      variant="plain"
+      loading={supplierDeletingId === s.id}
+      onClick={() => handleDeleteSupplier(s.id)}
+    >
+      Delete
+    </Button>,
+  ]);
+
+  const termsRows = (skuTerms ?? []).map((t) => [
+    t.sku,
+    t.supplierName,
+    t.leadTimeDays == null ? "—" : `${t.leadTimeDays}d`,
+    t.moq == null ? "—" : String(t.moq),
+    t.packSize == null ? "—" : String(t.packSize),
+    t.unitCost == null ? "—" : `$${Number(t.unitCost).toFixed(2)}`,
+    <Button
+      key={`del-terms-${t.sku}`}
+      tone="critical"
+      variant="plain"
+      loading={termsDeletingSku === t.sku}
+      onClick={() => handleDeleteSkuTerms(t.sku)}
+    >
+      Clear
+    </Button>,
+  ]);
+
+  const supplierOptions = [
+    { label: suppliers?.length ? "Select supplier" : "Add a supplier first", value: "" },
+    ...(suppliers ?? []).map((s) => ({
+      label: s.name,
+      value: String(s.id),
+    })),
+  ];
 
   return (
     <Page title="Settings" backAction={{ content: "Dashboard", url: "/app" }}>
@@ -746,6 +1078,265 @@ export default function Settings() {
                   </FormLayout.Group>
                   <Button submit loading={restockSaving}>
                     Save restock date
+                  </Button>
+                </FormLayout>
+              </form>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Reorder defaults
+              </Text>
+              <Text as="p" tone="subdued">
+                Review period and service-level z feed the order-up-to formula
+                (lead time + review + safety stock). Defaults are 14 days and
+                z = 1.65 (~95% service level). Recommend-only — no orders are
+                placed.
+              </Text>
+
+              {reorderResult?.ok && reorderResult.intent === "saveReorderSetting" && (
+                <Banner tone="success">Saved.</Banner>
+              )}
+              {reorderResult?.ok === false &&
+                reorderResult.intent === "saveReorderSetting" && (
+                  <Banner tone="critical">{reorderResult.error}</Banner>
+                )}
+
+              <form onSubmit={handleSaveReorderSetting}>
+                <FormLayout>
+                  <FormLayout.Group>
+                    <TextField
+                      label="Review period (days)"
+                      name="reviewDays"
+                      type="number"
+                      min={1}
+                      value={reviewDays}
+                      onChange={setReviewDays}
+                      autoComplete="off"
+                      helpText="How often you place replenishment orders."
+                    />
+                    <TextField
+                      label="Service-level z"
+                      name="serviceLevelZ"
+                      value={serviceLevelZ}
+                      onChange={setServiceLevelZ}
+                      autoComplete="off"
+                      helpText="1.65 ≈ 95% service level. Safety stock scales with this."
+                    />
+                  </FormLayout.Group>
+                  <Button submit loading={reorderSaving}>
+                    Save reorder defaults
+                  </Button>
+                </FormLayout>
+              </form>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                Suppliers
+              </Text>
+              <Text as="p" tone="subdued">
+                Merchant-entered suppliers stored in this app only — not written
+                to Shopify. Used to group draft purchase orders.
+              </Text>
+
+              {supplierRows.length > 0 && (
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text"]}
+                  headings={["Name", "Default lead time", "Notes", ""]}
+                  rows={supplierRows}
+                />
+              )}
+
+              {supplierResult?.ok === false &&
+                (supplierResult.intent === "createSupplier" ||
+                  supplierResult.intent === "deleteSupplier") && (
+                  <Banner tone="critical">{supplierResult.error}</Banner>
+                )}
+
+              <form onSubmit={handleCreateSupplier}>
+                <FormLayout>
+                  <FormLayout.Group>
+                    <TextField
+                      label="Supplier name"
+                      name="name"
+                      value={newSupplierName}
+                      onChange={setNewSupplierName}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Default lead time (days)"
+                      name="defaultLeadTimeDays"
+                      type="number"
+                      min={1}
+                      value={newSupplierLead}
+                      onChange={setNewSupplierLead}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Notes (optional)"
+                      name="notes"
+                      value={newSupplierNotes}
+                      onChange={setNewSupplierNotes}
+                      autoComplete="off"
+                    />
+                  </FormLayout.Group>
+                  <Button submit loading={supplierSaving}>
+                    Add supplier
+                  </Button>
+                </FormLayout>
+              </form>
+            </BlockStack>
+          </Card>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">
+                SKU supplier terms
+              </Text>
+              <Text as="p" tone="subdued">
+                Lead time, MOQ, pack size, and unit cost per SKU. Unit cost is
+                used for revenue-at-risk and draft PO totals — enter your cost,
+                not retail price, unless you intentionally want retail exposure.
+              </Text>
+
+              {termsRows.length > 0 && (
+                <DataTable
+                  columnContentTypes={[
+                    "text",
+                    "text",
+                    "text",
+                    "numeric",
+                    "numeric",
+                    "text",
+                    "text",
+                  ]}
+                  headings={[
+                    "SKU",
+                    "Supplier",
+                    "Lead",
+                    "MOQ",
+                    "Pack",
+                    "Unit cost",
+                    "",
+                  ]}
+                  rows={termsRows}
+                />
+              )}
+
+              {termsResult?.ok === false &&
+                (termsResult.intent === "saveSkuTerms" ||
+                  termsResult.intent === "deleteSkuTerms" ||
+                  termsResult.intent === "importSkuTermsCsv") && (
+                  <Banner tone="critical">{termsResult.error}</Banner>
+                )}
+              {termsResult?.ok &&
+                termsResult.intent === "importSkuTermsCsv" &&
+                termsResult.importResult && (
+                  <Banner tone="success">
+                    Imported {termsResult.importResult.ok} row
+                    {termsResult.importResult.ok === 1 ? "" : "s"}
+                    {termsResult.importResult.errors?.length
+                      ? ` (${termsResult.importResult.errors.length} skipped)`
+                      : ""}
+                    .
+                  </Banner>
+                )}
+
+              <form onSubmit={handleSaveSkuTerms}>
+                <FormLayout>
+                  <FormLayout.Group>
+                    <TextField
+                      label="SKU"
+                      name="sku"
+                      value={termsSku}
+                      onChange={setTermsSku}
+                      autoComplete="off"
+                      helpText="Must match your catalog SKU exactly."
+                    />
+                    <Select
+                      label="Supplier"
+                      name="supplierId"
+                      options={supplierOptions}
+                      value={termsSupplierId}
+                      onChange={setTermsSupplierId}
+                    />
+                  </FormLayout.Group>
+                  <FormLayout.Group>
+                    <TextField
+                      label="Lead time days (optional)"
+                      name="leadTimeDays"
+                      type="number"
+                      min={1}
+                      value={termsLead}
+                      onChange={setTermsLead}
+                      autoComplete="off"
+                      helpText="Blank = use supplier default."
+                    />
+                    <TextField
+                      label="MOQ (optional)"
+                      name="moq"
+                      type="number"
+                      min={1}
+                      value={termsMoq}
+                      onChange={setTermsMoq}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Pack size (optional)"
+                      name="packSize"
+                      type="number"
+                      min={1}
+                      value={termsPack}
+                      onChange={setTermsPack}
+                      autoComplete="off"
+                    />
+                    <TextField
+                      label="Unit cost (optional)"
+                      name="unitCost"
+                      value={termsCost}
+                      onChange={setTermsCost}
+                      autoComplete="off"
+                      helpText="Used for revenue at risk and draft PO cost."
+                    />
+                  </FormLayout.Group>
+                  <Button
+                    submit
+                    loading={termsSaving}
+                    disabled={!suppliers?.length}
+                  >
+                    Save SKU terms
+                  </Button>
+                </FormLayout>
+              </form>
+
+              <form onSubmit={handleImportCsv}>
+                <FormLayout>
+                  <TextField
+                    label="Import CSV"
+                    name="csvText"
+                    value={csvText}
+                    onChange={setCsvText}
+                    multiline={4}
+                    autoComplete="off"
+                    helpText='Header: sku,supplier,lead_time_days,moq,pack_size,unit_cost — supplier must match an existing name.'
+                  />
+                  <Button
+                    submit
+                    loading={csvSaving}
+                    disabled={!suppliers?.length}
+                  >
+                    Import terms CSV
                   </Button>
                 </FormLayout>
               </form>

@@ -19,7 +19,7 @@ import {
   InlineStack,
 } from "@shopify/polaris";
 import { authenticate } from "../lib/shopify.server.js";
-import { buildForecastSnapshot } from "../lib/forecast-snapshot.server.js";
+import { buildForecastSnapshotWithMeta } from "../lib/forecast-snapshot.server.js";
 import { getTrackedSkus } from "../lib/usage-history.server.js";
 import { backfillUsageHistory } from "../lib/backfill.server.js";
 import { getShopAiSettings } from "../lib/ai-settings.server.js";
@@ -44,9 +44,16 @@ export const loader = async ({ request }) => {
   const hasAiKey = !!aiSettings;
 
   let forecastSnapshot = [];
+  let atRisk = [];
+  let draftPoText = null;
+  let draftPoCsv = null;
   let loadError = null;
   try {
-    forecastSnapshot = await buildForecastSnapshot(admin, shop);
+    const meta = await buildForecastSnapshotWithMeta(admin, shop);
+    forecastSnapshot = meta.items;
+    atRisk = meta.atRisk;
+    draftPoText = meta.draftPoText;
+    draftPoCsv = meta.draftPoCsv;
   } catch (err) {
     console.error(`buildForecastSnapshot failed for ${shop}:`, err);
     loadError = "Couldn't load inventory data from Shopify. Try reloading the page.";
@@ -62,6 +69,9 @@ export const loader = async ({ request }) => {
 
   return json({
     forecastSnapshot,
+    atRisk,
+    draftPoText,
+    draftPoCsv,
     loadError,
     isBackfilling: trackedSkus.length === 0,
     hasAiKey,
@@ -141,7 +151,15 @@ async function postWithSessionToken(path, formData) {
 }
 
 export default function Dashboard() {
-  const { forecastSnapshot, loadError, isBackfilling, hasAiKey } = useLoaderData();
+  const {
+    forecastSnapshot,
+    atRisk,
+    draftPoText,
+    draftPoCsv,
+    loadError,
+    isBackfilling,
+    hasAiKey,
+  } = useLoaderData();
   const [question, setQuestion] = useState("");
   const [toastMessage, setToastMessage] = useState(null);
   const [toastError, setToastError] = useState(false);
@@ -160,16 +178,40 @@ export default function Dashboard() {
     (item) => item.preorder?.staleRestockDate,
   );
 
-  const handleCopySummary = async (summary) => {
+  const handleCopySummary = async (summary, successMessage) => {
     if (!summary) return;
     try {
       await navigator.clipboard.writeText(summary);
-      showToast("Copied summary — paste it into your pre-order app.");
+      showToast(successMessage || "Copied to clipboard.");
     } catch (err) {
       console.error("Clipboard write failed:", err);
-      showToast("Couldn't copy — select the summary text manually.", { error: true });
+      showToast("Couldn't copy — select the text manually.", { error: true });
     }
   };
+
+  const handleDownloadCsv = () => {
+    if (!draftPoCsv) return;
+    const blob = new Blob([draftPoCsv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "draft-purchase-order.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded draft PO CSV.");
+  };
+
+  const atRiskRows = (atRisk ?? []).map((row) => [
+    row.sku,
+    truncateTitle(row.title),
+    row.supplierName ?? "—",
+    row.daysOfCover === Infinity ? "—" : row.daysOfCover,
+    row.orderQty,
+    row.shortfall.unitsAtRisk,
+    row.shortfall.revenueAtRisk > 0
+      ? `$${Number(row.shortfall.revenueAtRisk).toFixed(2)}`
+      : "—",
+  ]);
 
   const handleAsk = async () => {
     if (!question.trim() || asking) return;
@@ -270,7 +312,14 @@ export default function Dashboard() {
                             {summary}
                           </span>
                         </Text>
-                        <Button onClick={() => handleCopySummary(summary)}>
+                        <Button
+                          onClick={() =>
+                            handleCopySummary(
+                              summary,
+                              "Copied summary — paste it into your pre-order app.",
+                            )
+                          }
+                        >
                           Copy summary
                         </Button>
                       </BlockStack>
@@ -279,6 +328,81 @@ export default function Dashboard() {
                 </Card>
               );
             })}
+
+            {(atRisk?.length > 0 || draftPoText) && (
+              <Card>
+                <BlockStack gap="400">
+                  <InlineStack align="space-between" blockAlign="center" wrap>
+                    <Text as="h2" variant="headingMd">
+                      Revenue at risk / draft PO
+                    </Text>
+                    <Badge tone="warning">Recommend only</Badge>
+                  </InlineStack>
+                  <Text as="p" tone="subdued">
+                    Quantities use your demand history plus merchant-entered
+                    supplier terms (lead time, MOQ, pack size). Estimates only —
+                    this app does not place orders. Add suppliers in{" "}
+                    <Link url="/app/settings">Settings</Link>.
+                  </Text>
+
+                  {atRiskRows.length > 0 && (
+                    <DataTable
+                      columnContentTypes={[
+                        "text",
+                        "text",
+                        "text",
+                        "numeric",
+                        "numeric",
+                        "numeric",
+                        "text",
+                      ]}
+                      headings={[
+                        "SKU",
+                        "Product",
+                        "Supplier",
+                        "Cover",
+                        "Order qty",
+                        "Units at risk",
+                        "Revenue at risk",
+                      ]}
+                      rows={atRiskRows}
+                    />
+                  )}
+
+                  {draftPoText && (
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodySm" tone="subdued">
+                        <span
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {draftPoText}
+                        </span>
+                      </Text>
+                      <InlineStack gap="200">
+                        <Button
+                          onClick={() =>
+                            handleCopySummary(
+                              draftPoText,
+                              "Copied draft PO — paste into your purchasing workflow.",
+                            )
+                          }
+                        >
+                          Copy draft PO
+                        </Button>
+                        {draftPoCsv && (
+                          <Button onClick={handleDownloadCsv}>
+                            Download CSV
+                          </Button>
+                        )}
+                      </InlineStack>
+                    </BlockStack>
+                  )}
+                </BlockStack>
+              </Card>
+            )}
 
             <Card>
               {forecastSnapshot.length === 0 && !loadError ? (
