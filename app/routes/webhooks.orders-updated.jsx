@@ -1,4 +1,5 @@
 import { authenticate } from "../lib/shopify.server.js";
+import { isVoidOrder, resolveSourceVersion } from "../lib/order-usage.js";
 import { recordOrderUsage } from "../lib/usage-history.server.js";
 
 /**
@@ -11,14 +12,16 @@ import { recordOrderUsage } from "../lib/usage-history.server.js";
  * `future.expiringOfflineAccessTokens: true` and the Session table has a
  * valid refresh token on file (see prisma/schema.prisma).
  *
- * IDEMPOTENCY: orders/updated fires on nearly any edit to an order, not
- * just ones that change what was sold, and Shopify can redeliver any
- * webhook. recordOrderUsage (usage-history.server.js) tracks the last
- * line-item snapshot per order ID and only applies the delta, so repeated
- * or edited deliveries for the same order don't double-count.
+ * IDEMPOTENCY + ORDERING: orders/updated fires on nearly any edit to an
+ * order, Shopify can redeliver any webhook, and delivery order is NOT
+ * guaranteed (within or across topics). recordOrderUsage
+ * (usage-history.server.js) keeps the last line-item snapshot and delivery
+ * version per order: duplicates apply no delta, and a delivery older than
+ * the stored version (X-Shopify-Triggered-At, else payload.updated_at) is
+ * skipped instead of overwriting newer state.
  */
 export const action = async ({ request }) => {
-  const { shop, topic, payload } = await authenticate.webhook(request);
+  const { shop, topic, payload, triggeredAt } = await authenticate.webhook(request);
 
   console.log(`Webhook ${topic} received for ${shop}, order ${payload?.id}`);
 
@@ -30,11 +33,7 @@ export const action = async ({ request }) => {
   // Cancelled/refunded/voided orders have no inventory impact worth
   // tracking as "usage" — treat as zero line items so a prior recorded
   // quantity gets subtracted back out via the delta logic.
-  const financialStatus = payload?.financial_status;
-  const isVoid =
-    !!payload?.cancelled_at ||
-    financialStatus === "refunded" ||
-    financialStatus === "voided";
+  const isVoid = isVoidOrder(payload);
 
   const lineItems = isVoid
     ? []
@@ -43,9 +42,16 @@ export const action = async ({ request }) => {
         quantity: item.quantity,
       }));
 
-  await recordOrderUsage(shop, String(payload.id), new Date(payload.created_at), lineItems);
+  const sourceUpdatedAt = resolveSourceVersion(triggeredAt, payload.updated_at, new Date());
+  const result = await recordOrderUsage(
+    shop,
+    String(payload.id),
+    new Date(payload.created_at),
+    lineItems,
+    sourceUpdatedAt,
+  );
   console.log(
-    `Reconciled usage for order ${payload.id} (${lineItems.length} line items, void=${isVoid})`,
+    `Reconciled usage for order ${payload.id} (${lineItems.length} line items, void=${isVoid}, ${result.action})`,
   );
 
   return new Response();

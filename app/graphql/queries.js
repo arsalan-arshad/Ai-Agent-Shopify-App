@@ -9,6 +9,7 @@ export const RECENT_ORDERS_QUERY = `#graphql
         node {
           id
           createdAt
+          updatedAt
           lineItems(first: 50) {
             edges {
               node {

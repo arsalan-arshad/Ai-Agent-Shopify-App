@@ -15,7 +15,9 @@ import prisma from "./db.server.js";
  * same { sku: quantity } snapshot shape the orders webhook uses
  * (usage-history.server.js). Without this, an orders/updated webhook that
  * later fires for an order this backfill already counted would have no
- * baseline to diff against and would double-count it.
+ * baseline to diff against and would double-count it. The order's
+ * updatedAt is stored as sourceUpdatedAt so a stale (older) webhook
+ * delivered after the backfill is skipped rather than applied.
  */
 export async function backfillUsageHistory(admin, shop, { maxPages = 5 } = {}) {
   let cursor = null;
@@ -44,7 +46,11 @@ export async function backfillUsageHistory(admin, shop, { maxPages = 5 } = {}) {
       }
 
       if (Object.keys(lineItems).length > 0) {
-        orderSnapshots.set(orderId, { date: new Date(`${day}T00:00:00.000Z`), lineItems });
+        orderSnapshots.set(orderId, {
+          date: new Date(`${day}T00:00:00.000Z`),
+          lineItems,
+          sourceUpdatedAt: order.updatedAt ? new Date(order.updatedAt) : null,
+        });
       }
     }
 
@@ -78,8 +84,18 @@ export async function backfillUsageHistory(admin, shop, { maxPages = 5 } = {}) {
     const orderId = gid.split("/").pop();
     await prisma.processedOrder.upsert({
       where: { shop_order: { shop, orderId } },
-      update: { date: snapshot.date, lineItems: snapshot.lineItems },
-      create: { shop, orderId, date: snapshot.date, lineItems: snapshot.lineItems },
+      update: {
+        date: snapshot.date,
+        lineItems: snapshot.lineItems,
+        sourceUpdatedAt: snapshot.sourceUpdatedAt,
+      },
+      create: {
+        shop,
+        orderId,
+        date: snapshot.date,
+        lineItems: snapshot.lineItems,
+        sourceUpdatedAt: snapshot.sourceUpdatedAt,
+      },
     });
   }
 
