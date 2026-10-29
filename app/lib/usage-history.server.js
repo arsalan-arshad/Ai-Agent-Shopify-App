@@ -1,4 +1,5 @@
 import prisma from "./db.server.js";
+import { createQuantityForDelta, planOrderUsageUpdate } from "./order-usage.js";
 
 /**
  * Records (or re-reconciles) usage for one order's line items, keyed by
@@ -10,60 +11,83 @@ import prisma from "./db.server.js";
  * re-adding the full line-item quantities on every delivery inflates
  * DailyUsage without bound.
  *
- * Fix: ProcessedOrder stores the last { sku: quantity } snapshot we
- * recorded for this order. Each call computes the delta between that
- * snapshot and the current line items and applies only the delta to
- * DailyUsage (which can be negative, e.g. a line item's quantity was
- * reduced or removed). A delivery with unchanged line items is a no-op.
+ * Duplicates: ProcessedOrder stores the last { sku: quantity } snapshot we
+ * recorded for this order. Each call applies only the delta between that
+ * snapshot and the current line items (negative when a quantity dropped or
+ * a line was removed). An unchanged delivery is a no-op.
+ *
+ * Out-of-order delivery: Shopify doesn't guarantee ordering, so each
+ * delivery carries a version (sourceUpdatedAt: triggered-at header, else
+ * payload updated_at) and a delivery older than the stored version is
+ * skipped. The decision lives in the pure planOrderUsageUpdate
+ * (order-usage.js).
+ *
+ * Concurrency: the whole read-plan-write runs in one interactive
+ * transaction holding a row lock (SELECT ... FOR UPDATE) on the order's
+ * ProcessedOrder row, so two simultaneous deliveries for one order are
+ * serialized and the second plans against the first's committed state. A
+ * lock was chosen over optimistic compare-and-set because it needs no retry
+ * loop and also covers equal-version deliveries. A new order gets a
+ * placeholder row (ON CONFLICT DO NOTHING) first so there is always a row to
+ * lock; if the transaction fails the placeholder rolls back with it.
  *
  * Usage is attributed to the order's creation date (not "today" the
  * webhook happened to fire), which is what the forecasting math and the
  * backfill importer (backfill.server.js) both expect.
+ *
+ * @returns {Promise<{ action: "skip_stale" | "noop" | "apply" }>}
  */
-export async function recordOrderUsage(shop, orderId, orderDate, lineItems) {
+// Interactive-transaction defaults (2s wait / 5s run) are tight when a burst
+// of deliveries queues on one order's row lock.
+const TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 };
+
+export async function recordOrderUsage(
+  shop,
+  orderId,
+  orderDate,
+  lineItems,
+  sourceUpdatedAt = null,
+) {
   const date = startOfDay(orderDate);
 
-  // Aggregate line items by SKU (an order can have multiple line items
-  // for the same SKU) and drop items with no SKU (bundles, tips, etc.)
-  const currentMap = {};
-  for (const item of lineItems) {
-    if (!item.sku) continue;
-    currentMap[item.sku] = (currentMap[item.sku] ?? 0) + (item.quantity ?? 0);
-  }
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`
+      INSERT INTO "ProcessedOrder" ("shop", "orderId", "date", "lineItems", "updatedAt")
+      VALUES (${shop}, ${orderId}, ${date}, '{}'::jsonb, NOW())
+      ON CONFLICT ("shop", "orderId") DO NOTHING`;
 
-  const previous = await prisma.processedOrder.findUnique({
-    where: { shop_order: { shop, orderId } },
-  });
-  const previousMap = previous?.lineItems ?? {};
+    const [row] = await tx.$queryRaw`
+      SELECT "lineItems", "sourceUpdatedAt" FROM "ProcessedOrder"
+      WHERE "shop" = ${shop} AND "orderId" = ${orderId}
+      FOR UPDATE`;
 
-  const skus = new Set([...Object.keys(currentMap), ...Object.keys(previousMap)]);
-  const deltas = [];
-  for (const sku of skus) {
-    const delta = (currentMap[sku] ?? 0) - (previousMap[sku] ?? 0);
-    if (delta !== 0) deltas.push({ sku, delta });
-  }
+    // A placeholder or pre-migration row has a null version, which the
+    // planner treats as applicable.
+    const plan = planOrderUsageUpdate({
+      previous: row,
+      incoming: { lineItems, sourceUpdatedAt },
+    });
 
-  if (deltas.length === 0 && previous) {
-    // Nothing changed since the last delivery for this order — no-op.
-    return;
-  }
+    if (plan.action === "apply") {
+      for (const { sku, delta } of plan.deltas) {
+        await tx.dailyUsage.upsert({
+          where: { shop_sku_date: { shop, sku, date } },
+          update: { quantity: { increment: delta } },
+          create: { shop, sku, date, quantity: createQuantityForDelta(delta) },
+        });
+      }
+      await tx.processedOrder.update({
+        where: { shop_order: { shop, orderId } },
+        data: {
+          date,
+          lineItems: plan.nextSnapshot,
+          sourceUpdatedAt: plan.nextSourceUpdatedAt,
+        },
+      });
+    }
 
-  await prisma.$transaction([
-    ...deltas.map(({ sku, delta }) =>
-      prisma.dailyUsage.upsert({
-        where: { shop_sku_date: { shop, sku, date } },
-        update: { quantity: { increment: delta } },
-        // If this is a net-negative delta with no existing row (shouldn't
-        // normally happen), clamp at 0 rather than creating a negative count.
-        create: { shop, sku, date, quantity: Math.max(delta, 0) },
-      }),
-    ),
-    prisma.processedOrder.upsert({
-      where: { shop_order: { shop, orderId } },
-      update: { date, lineItems: currentMap },
-      create: { shop, orderId, date, lineItems: currentMap },
-    }),
-  ]);
+    return { action: plan.action };
+  }, TX_OPTIONS);
 }
 
 /**

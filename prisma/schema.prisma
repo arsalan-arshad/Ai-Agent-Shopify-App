@@ -66,6 +66,11 @@ model ProcessedOrder {
   orderId    String
   date       DateTime // day the order was created, used as DailyUsage's date key
   lineItems  Json // { [sku]: quantity } snapshot of what we last recorded
+  /// Shopify-side version of the delivery this snapshot came from
+  /// (X-Shopify-Triggered-At, else payload.updated_at). Older deliveries
+  /// are skipped so out-of-order webhooks can't overwrite newer state.
+  /// Null on rows written before this column existed (treated as applicable).
+  sourceUpdatedAt DateTime?
   updatedAt  DateTime @updatedAt
 
   @@unique([shop, orderId], name: "shop_order")
