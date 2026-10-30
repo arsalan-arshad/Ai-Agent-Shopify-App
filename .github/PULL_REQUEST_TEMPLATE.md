@@ -4,7 +4,8 @@
 (development store used, steps taken, screenshots/recording if UI-facing)
 
 ## Checklist
-- [ ] `npm run build` passes
+- [ ] Tests added or updated for the change (pure math and webhook logic need fixture tests)
+- [ ] `npm test` and `npm run build` pass
 - [ ] No secrets, `.env`, or `*.sqlite` files included
-- [ ] Scopes unchanged, or the new scope is discussed in a linked issue
-- [ ] `app/lib/forecasting.js` stays pure/deterministic if touched
+- [ ] No new Shopify scopes (or the scope is discussed in a linked issue and signed off)
+- [ ] Docs updated if behavior changed (README, `docs/WEBHOOKS.md`)

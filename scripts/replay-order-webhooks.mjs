@@ -4,7 +4,7 @@
  * to verify out-of-order / duplicate / concurrent delivery handling.
  *
  * NOT part of `npm test`. Usage (throwaway DB + dummy secrets only):
- *   DATABASE_URL=postgresql://macbook@localhost:5432/agent_forecast_replay_test \
+ *   DATABASE_URL=postgresql://YOUR_USER@localhost:5432/agent_forecast_replay_test \
  *   SHOPIFY_API_SECRET=dummysecret BASE_URL=http://localhost:39217 \
  *   node scripts/replay-order-webhooks.mjs [seed]
  * The server must run with the same DATABASE_URL and SHOPIFY_API_SECRET.
