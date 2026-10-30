@@ -39,19 +39,12 @@ export const action = async ({ request }) => {
     ? []
     : (payload?.line_items ?? []).map((item) => ({
         sku: item.sku,
-        // current_quantity excludes refunded/removed units (see
-        // effectiveQuantity): an order edited 3 -> 2 now counts 2.
+        // Confirmed on a dev store: line_items[].quantity stays at the
+        // ORIGINAL value, while current_quantity excludes removed and
+        // refunded units (see effectiveQuantity). An order edited 3 -> 2
+        // now counts 2.
         quantity: effectiveQuantity(item),
       }));
-
-  // TEMP diagnostic: confirm the real payload shape on the dev store, then
-  // remove. Numbers only (no names/addresses/emails).
-  console.log(
-    `Order ${payload.id} line quantity/current_quantity: ` +
-      (payload.line_items ?? [])
-        .map((i) => `${i?.quantity}/${i?.current_quantity ?? "n/a"}`)
-        .join(", "),
-  );
 
   const sourceUpdatedAt = resolveSourceVersion(triggeredAt, payload.updated_at, new Date());
   const result = await recordOrderUsage(
