@@ -59,15 +59,18 @@ export function resolveSourceVersion(triggeredAt, updatedAt, now = new Date()) {
  * quantity under the same guard, else 0. Never negative, never NaN.
  *
  * Shopify's `quantity` includes refunded and removed units. GraphQL
- * `currentQuantity` excludes both; the REST/webhook docs only say
- * current_quantity is quantity minus the removed quantity, so whether the
- * webhook value also subtracts refunded units is NOT confirmed by the docs
- * (check the TEMP log in webhooks.orders-updated.jsx on a dev store).
- * Without this, an order edited down from 3 to 2 keeps counting 3. PRODUCT DECISION (default, to be confirmed):
- * refunded and removed units are treated as not-demand, consistent with the
- * existing full-refund/cancel behavior (isVoidOrder). The fallback to
- * `quantity` keeps payloads that lack the field working. Usage recorded
- * before this change keeps the original quantities.
+ * `currentQuantity` excludes both, and the same holds for the webhook's
+ * `current_quantity`: confirmed on a dev store, where the orders/updated
+ * payload kept `quantity` at the original value while `current_quantity`
+ * went 3 -> 2 (edit) -> 1 (partial refund). The REST docs only describe it
+ * as quantity minus the removed quantity, so this rests on observed
+ * payloads. Without this, an order edited down from 3 to 2 keeps counting 3.
+ *
+ * PRODUCT DECISION: refunded and removed units are treated as not-demand,
+ * consistent with the existing full-refund/cancel behavior (isVoidOrder).
+ * The fallback to `quantity` keeps payloads that lack the field working.
+ * Usage recorded before this change keeps the original quantities until the
+ * order's next update.
  */
 export function effectiveQuantity(item) {
   const current = item?.current_quantity ?? item?.currentQuantity;
