@@ -30,8 +30,9 @@ charge $50–$300/mo for what amounts to a wrapper around a single LLM call.
    reorder-point calculation, days-of-cover, stock-status classification. No AI, no
    randomness, no network calls. Given the same inputs, it always returns the same numbers,
    and every number is traceable back to a formula a merchant (or a reviewer) can audit.
-2. **A grounded conversational AI co-pilot** (`app/lib/ai-agent.js`) that sits *on top of*
-   those numbers to explain and answer follow-up questions. The agent's system prompt is
+2. **A grounded conversational AI co-pilot** (`app/lib/ai-agent.js`, prompt in
+   `app/lib/ai-prompt.js`) that sits *on top of* those numbers to explain and answer
+   follow-up questions. The agent's system prompt is
    built from a server-side forecast snapshot only — prompt-enforced, tested that the
    snapshot is embedded (and instructed never to invent a gap, restock date, or
    units-at-risk figure). The snapshot is rebuilt from the database and the Shopify Admin
@@ -96,8 +97,8 @@ Free plan**.
   - When a merchant enters a per-SKU restock date, the engine compares it to days of cover
     and surfaces a dashboard card with gap days, units at risk, and a suggested switch-on
     day — plus a copyable summary for their existing pre-order app.
-  - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update
-    Optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
+  - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update.
+    An optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
 
 - **Reorder Brain (v0, recommend-only)** (`app/lib/reorder.js`):
   - Merchant-entered suppliers + per-SKU terms (lead time, MOQ, pack size, unit cost)
@@ -140,6 +141,7 @@ app/
 │   ├── forecast-snapshot.server.js   # Builds the forecast snapshot from live Admin API +
 │   │                                  # DB (paginated, multi-location aware). The one place
 │   │                                  # it's built — dashboard and chat both call this.
+│   ├── ai-prompt.js                  # Builds the grounded system prompt from the snapshot.
 │   ├── ai-agent.js                   # Gemini / Claude BYOK call abstraction, grounded
 │   │                                  # strictly in the snapshot, never generates numbers.
 │   ├── ai-settings.server.js         # Encrypted key storage, usage logging, per-shop
@@ -178,7 +180,7 @@ prisma/
 **Stack:** Remix 2 (Vite) · React 18 · Polaris 13 · App Bridge 4 ·
 `@shopify/shopify-app-remix` ^6.0.1 · Prisma ^6.19.3 on PostgreSQL (both dev and production —
 Prisma supports one database provider per project, so SQLite was dropped entirely) ·
-`@google/genai` + `@anthropic-ai/sdk` · Node ≥20.19.
+`@google/genai` + `@anthropic-ai/sdk` · Node ≥20.19 (20.x) or ≥22.12.
 
 ---
 
