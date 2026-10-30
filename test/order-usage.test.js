@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   aggregateBySku,
   createQuantityForDelta,
+  effectiveQuantity,
   isVoidOrder,
   planOrderUsageUpdate,
   resolveSourceVersion,
@@ -316,4 +317,97 @@ test("far-future version is ignored (falls back), so it cannot poison an order",
   const v = resolveSourceVersion("2200-01-01T00:00:00Z", "2026-10-29T11:59:59Z", now);
   assert.equal(v.toISOString(), "2026-10-29T11:59:59.000Z");
   assert.equal(resolveSourceVersion("2200-01-01T00:00:00Z", "2200-01-01T00:00:00Z", now), null);
+});
+
+// --- current_quantity (edited / partially refunded orders) ---
+
+// Webhook-shaped line items -> planner input, as the handler does it.
+const wh = (...raw) => raw.map((i) => ({ sku: i.sku ?? "A", quantity: effectiveQuantity(i) }));
+const line = (quantity, current_quantity, sku = "A") =>
+  current_quantity === undefined ? { sku, quantity } : { sku, quantity, current_quantity };
+
+test("effectiveQuantity: current_quantity wins, falls back to quantity, guards junk", () => {
+  assert.equal(effectiveQuantity({ quantity: 3, current_quantity: 2 }), 2);
+  assert.equal(effectiveQuantity({ quantity: 3, current_quantity: 0 }), 0);
+  assert.equal(effectiveQuantity({ quantity: 3 }), 3);
+  assert.equal(effectiveQuantity({ quantity: 3, current_quantity: null }), 3);
+  assert.equal(effectiveQuantity({ quantity: 3, current_quantity: -1 }), 3);
+  assert.equal(effectiveQuantity({ quantity: 3, current_quantity: NaN }), 3);
+  assert.equal(effectiveQuantity({ quantity: 3, current_quantity: "2" }), 3);
+  assert.equal(effectiveQuantity({ quantity: -2 }), 0);
+  assert.equal(effectiveQuantity({ quantity: NaN, current_quantity: Infinity }), 0);
+  assert.equal(effectiveQuantity({}), 0);
+  assert.equal(effectiveQuantity(null), 0);
+  // GraphQL camelCase (backfill)
+  assert.equal(effectiveQuantity({ quantity: 3, currentQuantity: 1 }), 1);
+});
+
+test("edit down 3 -> 2 (quantity stays 3, current_quantity 2) lowers usage", () => {
+  const s = run([
+    { lineItems: wh(line(3)), at: T(1) },
+    { lineItems: wh(line(3, 2)), at: T(2) },
+  ]);
+  assert.equal(s.usage.A, 2);
+  assert.deepEqual(s.order.lineItems, { A: 2 });
+});
+
+test("edit up 2 -> 4 raises usage", () => {
+  const s = run([
+    { lineItems: wh(line(2, 2)), at: T(1) },
+    { lineItems: wh(line(4, 4)), at: T(2) },
+  ]);
+  assert.equal(s.usage.A, 4);
+});
+
+test("line removed (current_quantity 0) subtracts it and leaves no zero entry", () => {
+  const s = run([
+    { lineItems: wh(line(3, 3, "A"), line(2, 2, "B")), at: T(1) },
+    { lineItems: wh(line(3, 3, "A"), line(2, 0, "B")), at: T(2) },
+  ]);
+  assert.equal(s.usage.B, 0);
+  assert.equal(s.usage.A, 3);
+  assert.deepEqual(s.order.lineItems, { A: 3 });
+});
+
+test("partial refund (current_quantity < quantity) counts only remaining units", () => {
+  const s = run([
+    { lineItems: wh(line(5, 5)), at: T(1) },
+    { lineItems: wh(line(5, 4)), at: T(2) },
+  ]);
+  assert.equal(s.usage.A, 4);
+});
+
+test("missing current_quantity falls back to quantity", () => {
+  assert.equal(run([{ lineItems: wh(line(3)), at: T(1) }]).usage.A, 3);
+});
+
+test("edited delivery arriving before create still ends correct", () => {
+  for (const order of [
+    [
+      { lineItems: wh(line(3, 2)), at: T(2) },
+      { lineItems: wh(line(3, 3)), at: T(1) },
+    ],
+    [
+      { lineItems: wh(line(3, 3)), at: T(1) },
+      { lineItems: wh(line(3, 2)), at: T(2) },
+    ],
+  ]) {
+    assert.equal(run(order).usage.A, 2);
+  }
+});
+
+test("duplicate delivery of the same edit is a no-op", () => {
+  const edit = { lineItems: wh(line(3, 2)), at: T(2) };
+  const s = run([{ lineItems: wh(line(3, 3)), at: T(1) }, edit]);
+  assert.equal(deliver(s, edit).action, "noop");
+  assert.equal(s.usage.A, 2);
+});
+
+test("all units removed on a SKU-only order leaves an empty snapshot", () => {
+  const s = run([
+    { lineItems: wh(line(3, 3)), at: T(1) },
+    { lineItems: wh(line(3, 0)), at: T(2) },
+  ]);
+  assert.equal(s.usage.A, 0);
+  assert.deepEqual(s.order.lineItems, {});
 });
