@@ -53,7 +53,12 @@ const ev = {
   create: (ver = T0) => ({ kind: "create", qty: 5, cancelled: false, ver }),
   edit: (ver = T0 + 1000) => ({ kind: "edit", qty: 3, cancelled: false, ver }),
   cancel: (ver = T0 + 2000) => ({ kind: "cancel", qty: 3, cancelled: true, ver }),
+  // Edited down: quantity stays at the original 5, current_quantity is 2.
+  editCurrent: (ver = T0 + 1500) => ({ kind: "editCurrent", qty: 5, cq: 2, cancelled: false, ver }),
+  // Partial refund: quantity 5, current_quantity 4.
+  partialRefund: (ver = T0 + 1800) => ({ kind: "partialRefund", qty: 5, cq: 4, cancelled: false, ver }),
 };
+const effQty = (e) => (e.cancelled ? 0 : (e.cq ?? e.qty));
 
 async function send(shop, orderId, e, { withHeader = true, secret = SECRET } = {}) {
   const payload = {
@@ -62,7 +67,11 @@ async function send(shop, orderId, e, { withHeader = true, secret = SECRET } = {
     updated_at: iso(e.ver).replace(/\.\d+Z$/, "Z"),
     cancelled_at: e.cancelled ? iso(e.ver) : null,
     financial_status: "paid",
-    line_items: [{ sku: SKU, quantity: e.qty }],
+    line_items: [
+      e.cq === undefined
+        ? { sku: SKU, quantity: e.qty }
+        : { sku: SKU, quantity: e.qty, current_quantity: e.cq },
+    ],
   };
   const body = JSON.stringify(payload);
   const hmac = crypto.createHmac("sha256", secret).update(body, "utf8").digest("base64");
@@ -94,8 +103,8 @@ async function state(shop, orderId) {
 function expectedFor(events) {
   const last = [...events].sort((a, b) => a.ver - b.ver).at(-1);
   return {
-    qty: last.cancelled ? 0 : last.qty,
-    snapshot: last.cancelled ? {} : { [SKU]: last.qty },
+    qty: effQty(last),
+    snapshot: effQty(last) === 0 ? {} : { [SKU]: effQty(last) },
     ver: last.ver,
   };
 }
@@ -284,6 +293,38 @@ await scenario("9. same-ms-version different second? sub-second edits ordered by
   const a = ev.create(T0), b = ev.edit(T0 + 300); // same payload second
   const codes = await sequential(shop, id, [b, a]);
   return [...okCodes(codes), ...check(await state(shop, id), expectedFor([a, b]))];
+});
+
+// 10. current_quantity (edited / partially refunded orders)
+await scenario("10a. edit down via current_quantity (5 -> 2)", async () => {
+  const shop = newShop("s10a"), id = newOrder();
+  const evs = [ev.create(), ev.editCurrent()];
+  const codes = await sequential(shop, id, evs);
+  return [...okCodes(codes), ...check(await state(shop, id), expectedFor(evs))];
+});
+await scenario("10b. partial refund (5, current 4), then duplicated x3", async () => {
+  const shop = newShop("s10b"), id = newOrder();
+  const evs = [ev.create(), ev.partialRefund(), ev.partialRefund(), ev.partialRefund()];
+  const codes = await sequential(shop, id, evs);
+  return [...okCodes(codes), ...check(await state(shop, id), expectedFor(evs))];
+});
+await scenario("10c. edit-with-current_quantity arrives before create", async () => {
+  const shop = newShop("s10c"), id = newOrder();
+  const evs = [ev.editCurrent(), ev.create()];
+  const codes = await sequential(shop, id, evs);
+  return [...okCodes(codes), ...check(await state(shop, id), expectedFor(evs))];
+});
+await scenario("10d. 20 random orders mixing create/edit/partial refund/cancel", async () => {
+  const errs = [];
+  for (let i = 0; i < 20; i++) {
+    const shop = newShop(`s10d${i}`), id = newOrder();
+    const pool = [ev.create(), ev.editCurrent(), ev.partialRefund(), ev.cancel()];
+    // Drop cancel in half the runs so non-void final states are covered.
+    const evs = shuffle(rng() < 0.5 ? pool : pool.slice(0, 3));
+    const codes = await sequential(shop, id, evs);
+    errs.push(...okCodes(codes), ...check(await state(shop, id), expectedFor(evs)).map((m) => `run ${i}: ${m}`));
+  }
+  return errs;
 });
 
 const failed = results.filter((r) => !r.ok);

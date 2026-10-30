@@ -1,5 +1,6 @@
 import { RECENT_ORDERS_QUERY } from "../graphql/queries.js";
 import prisma from "./db.server.js";
+import { effectiveQuantity } from "./order-usage.js";
 
 /**
  * Seeds DailyUsage from the shop's existing order history on install,
@@ -40,9 +41,14 @@ export async function backfillUsageHistory(admin, shop, { maxPages = 5 } = {}) {
 
       for (const { node: item } of lineItemEdges) {
         if (!item.sku) continue;
+        // currentQuantity excludes refunded/removed units, matching the
+        // webhook path (effectiveQuantity). History recorded before this
+        // used original quantities and is not rewritten.
+        const qty = effectiveQuantity(item);
+        if (qty === 0) continue;
         const key = `${item.sku}|${day}`;
-        dailyTotals.set(key, (dailyTotals.get(key) ?? 0) + item.quantity);
-        lineItems[item.sku] = (lineItems[item.sku] ?? 0) + item.quantity;
+        dailyTotals.set(key, (dailyTotals.get(key) ?? 0) + qty);
+        lineItems[item.sku] = (lineItems[item.sku] ?? 0) + qty;
       }
 
       if (Object.keys(lineItems).length > 0) {

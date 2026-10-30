@@ -14,6 +14,7 @@ export const RECENT_ORDERS_QUERY = `#graphql
             edges {
               node {
                 quantity
+                currentQuantity
                 sku
                 title
                 variant {

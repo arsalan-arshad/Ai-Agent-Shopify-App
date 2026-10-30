@@ -54,6 +54,32 @@ export function resolveSourceVersion(triggeredAt, updatedAt, now = new Date()) {
 }
 
 /**
+ * Effective demand quantity of one line item (webhook snake_case or GraphQL
+ * camelCase): current_quantity when it is a finite, non-negative number, else
+ * quantity under the same guard, else 0. Never negative, never NaN.
+ *
+ * Shopify's `quantity` includes refunded and removed units. GraphQL
+ * `currentQuantity` excludes both; the REST/webhook docs only say
+ * current_quantity is quantity minus the removed quantity, so whether the
+ * webhook value also subtracts refunded units is NOT confirmed by the docs
+ * (check the TEMP log in webhooks.orders-updated.jsx on a dev store).
+ * Without this, an order edited down from 3 to 2 keeps counting 3. PRODUCT DECISION (default, to be confirmed):
+ * refunded and removed units are treated as not-demand, consistent with the
+ * existing full-refund/cancel behavior (isVoidOrder). The fallback to
+ * `quantity` keeps payloads that lack the field working. Usage recorded
+ * before this change keeps the original quantities.
+ */
+export function effectiveQuantity(item) {
+  const current = item?.current_quantity ?? item?.currentQuantity;
+  if (isCount(current)) return current;
+  return isCount(item?.quantity) ? item.quantity : 0;
+}
+
+function isCount(n) {
+  return typeof n === "number" && Number.isFinite(n) && n >= 0;
+}
+
+/**
  * Aggregates line items into { sku: qty }. Drops SKU-less items (bundles,
  * tips, ...). An order can repeat a SKU across lines, so quantities sum.
  */
@@ -65,7 +91,9 @@ export function aggregateBySku(lineItems) {
     if (!item?.sku) continue;
     map.set(item.sku, (map.get(item.sku) ?? 0) + (item.quantity ?? 0));
   }
-  return Object.fromEntries(map);
+  // A SKU whose units were all removed carries no demand; keep the snapshot
+  // free of zero entries (the delta against the old snapshot is unchanged).
+  return Object.fromEntries([...map].filter(([, qty]) => qty !== 0));
 }
 
 /**
