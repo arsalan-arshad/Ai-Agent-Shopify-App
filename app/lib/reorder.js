@@ -6,8 +6,8 @@
  * them.
  *
  * Demand / safety-stock inputs come from forecasting.js (WMA + calculateReorderPoint);
- * this module does not fork that math. Formulas and the worked example live in
- * the planning blueprint (07-reorder-brain), kept outside this repo.
+ * this module does not fork that math. The worked example used as a test
+ * fixture is in test/reorder.test.js.
  */
 
 /**

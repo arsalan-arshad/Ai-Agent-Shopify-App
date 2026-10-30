@@ -13,7 +13,7 @@ import {
 } from "../app/lib/reorder.js";
 import { calculateReorderPoint } from "../app/lib/forecasting.js";
 
-// README worked example (07-reorder-brain):
+// Worked example (reorder math fixture):
 // SKU X: 150 on hand · 0 on order · demand 8/day · lead time 21 days ·
 // daily stdDev 3 · review 14 · MOQ 200 · pack 24 · price $30.
 // Safety stock z=1.65: 1.65 × 3 × √21 ≈ 22.7

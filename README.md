@@ -5,8 +5,11 @@
 </p>
 
 > **Open-Source (MIT)** | Built for the Shopify Merchant & Developer Community | Open for PRs & Discussions
+>
+> **Live on the Shopify App Store:** [AI Forecast Agent](https://apps.shopify.com/ai-forecast-agent)
 
 [![CI](https://github.com/arsalan-arshad/Ai-Agent-Shopify-App/actions/workflows/ci.yml/badge.svg)](https://github.com/arsalan-arshad/Ai-Agent-Shopify-App/actions/workflows/ci.yml)
+[![Shopify App Store](https://img.shields.io/badge/Shopify%20App%20Store-Live-95BF47?logo=shopify&logoColor=white)](https://apps.shopify.com/ai-forecast-agent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Shopify API](https://img.shields.io/badge/Shopify%20API-2026--10-95BF47?logo=shopify&logoColor=white)](shopify.app.toml)
 [![Remix](https://img.shields.io/badge/Remix-2%20(Vite)-000000?logo=remix&logoColor=white)](https://remix.run)
@@ -27,8 +30,9 @@ charge $50–$300/mo for what amounts to a wrapper around a single LLM call.
    reorder-point calculation, days-of-cover, stock-status classification. No AI, no
    randomness, no network calls. Given the same inputs, it always returns the same numbers,
    and every number is traceable back to a formula a merchant (or a reviewer) can audit.
-2. **A grounded conversational AI co-pilot** (`app/lib/ai-agent.js`) that sits *on top of*
-   those numbers to explain and answer follow-up questions. The agent's system prompt is
+2. **A grounded conversational AI co-pilot** (`app/lib/ai-agent.js`, prompt in
+   `app/lib/ai-prompt.js`) that sits *on top of* those numbers to explain and answer
+   follow-up questions. The agent's system prompt is
    built from a server-side forecast snapshot only — prompt-enforced, tested that the
    snapshot is embedded (and instructed never to invent a gap, restock date, or
    units-at-risk figure). The snapshot is rebuilt from the database and the Shopify Admin
@@ -93,16 +97,14 @@ Free plan**.
   - When a merchant enters a per-SKU restock date, the engine compares it to days of cover
     and surfaces a dashboard card with gap days, units at risk, and a suggested switch-on
     day — plus a copyable summary for their existing pre-order app.
-  - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update
-    (SPEC §6). Optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
-  - Planning docs: planning blueprint, kept outside this repo.
+  - No new Shopify scopes and **no catalog writes**. Past restock dates prompt an update.
+    An optional `projectedStockoutDay` input is reserved for a Pipeline-Aware hook.
 
 - **Reorder Brain (v0, recommend-only)** (`app/lib/reorder.js`):
   - Merchant-entered suppliers + per-SKU terms (lead time, MOQ, pack size, unit cost)
     produce an order-up-to quantity, revenue at risk, and a copyable/CSV draft purchase
     order grouped by supplier. Demand/safety stock still come from `forecasting.js`.
-  - No new Shopify scopes, **no catalog/PO writes**. Drafts only — say "merge 07" before
-    shipping to main. Planning docs: `../07-reorder-brain/`.
+  - No new Shopify scopes, **no catalog/PO writes**. Drafts only.
 
 - **Webhook Pipeline & Data Integrity**:
   - Delta-based order tracking (`orders/create` + `orders/updated` → one handler,
@@ -142,6 +144,7 @@ app/
 │   ├── forecast-snapshot.server.js   # Builds the forecast snapshot from live Admin API +
 │   │                                  # DB (paginated, multi-location aware). The one place
 │   │                                  # it's built — dashboard and chat both call this.
+│   ├── ai-prompt.js                  # Builds the grounded system prompt from the snapshot.
 │   ├── ai-agent.js                   # Gemini / Claude BYOK call abstraction, grounded
 │   │                                  # strictly in the snapshot, never generates numbers.
 │   ├── ai-settings.server.js         # Encrypted key storage, usage logging, per-shop
@@ -180,7 +183,7 @@ prisma/
 **Stack:** Remix 2 (Vite) · React 18 · Polaris 13 · App Bridge 4 ·
 `@shopify/shopify-app-remix` ^6.0.1 · Prisma ^6.19.3 on PostgreSQL (both dev and production —
 Prisma supports one database provider per project, so SQLite was dropped entirely) ·
-`@google/genai` + `@anthropic-ai/sdk` · Node ≥20.19.
+`@google/genai` + `@anthropic-ai/sdk` · Node ≥20.19 (20.x) or ≥22.12.
 
 ---
 
@@ -190,7 +193,7 @@ Prisma supports one database provider per project, so SQLite was dropped entirel
 |---|---|
 | `Session` | Required by `@shopify/shopify-app-session-storage-prisma`. Includes `refreshToken`/`refreshTokenExpires` for Shopify's expiring offline-token requirement. |
 | `DailyUsage` | One row per SKU per day per shop — the forecasting engine's raw input. Populated by the orders webhook and the install-time backfill. |
-| `ProcessedOrder` | The last recorded `{sku: quantity}` snapshot per order, so a redelivered/edited webhook only applies the delta instead of double-counting. |
+| `ProcessedOrder` | The last recorded `{sku: quantity}` snapshot per order plus the delivery version (`sourceUpdatedAt`), so a redelivered/edited webhook only applies the delta and a stale out-of-order one is skipped. |
 | `LeadTimeSetting` | Per-SKU or shop-wide (`sku: ""`) reorder lead time, editable from Settings. |
 | `RestockDate` | Per-SKU expected restock arrival (date + optional qty). Informational for the recommend-only pre-order card; no catalog writes. |
 | `PreorderSetting` | Shop-level switch-on / switch-off cover-day thresholds for pre-order recommendations (defaults 3 / 7). |
@@ -254,18 +257,22 @@ There's no AI magic here to "trust" — the forecasting math is pure functions y
 directly in a REPL and check by hand. What's verified before every merge:
 
 ```bash
-npm run build      # remix vite:build — production build must succeed; this is what CI runs
-                    # on every pull request (.github/workflows/ci.yml)
+npm test           # node --test — fixture tests for the pure math and the webhook logic
+npm run build      # remix vite:build — production build must succeed. CI runs both `npm test`
+                    # and `npm run build` on every pull request (.github/workflows/ci.yml)
 npm run stats       # scripts/stats.mjs — prints aggregate portfolio numbers (install count,
                     # active stores, AI questions answered, SKUs tracked, feedback average)
                     # straight from Postgres, read-only, no per-shop data
 npx prisma studio   # inspect what a webhook handler or the backfill actually wrote
 ```
 
-Pre-order math already has a Node built-in test suite (`npm test` → `test/preorder.test.js`).
-Broader coverage around `forecasting.js` and the webhook delta logic is still on the roadmap
-below and remains one of the most useful places for a contribution — the math being pure
-functions makes it straightforward to test.
+`npm test` uses Node's built-in test runner (no extra dependencies, no database needed) and
+covers the pre-order math (`test/preorder*.test.js`), the reorder math
+(`test/reorder*.test.js`), the AI prompt grounding (`test/ai-agent-prompt.test.js`) and the
+order-webhook ordering/quantity logic (`test/order-usage.test.js`, see
+[`docs/WEBHOOKS.md`](docs/WEBHOOKS.md)). Direct tests for `forecasting.js` are still on the
+roadmap below and are a good first contribution — the math being pure functions makes it
+straightforward to test.
 
 ---
 
@@ -305,14 +312,16 @@ editing the TOML locally has no effect on Shopify's side until it's actually dep
 - [x] OAuth install flow hardened against manual shop-domain entry (App Store 2.3.1)
 - [x] Pre-order recommend-only v0 (gap math, restock dates, dashboard card, grounded AI)
 - [x] Node test suite for pre-order math (`npm test` / `test/preorder.test.js`)
-- [ ] Broader automated tests around `forecasting.js` and the webhook delta logic
+- [x] Fixture tests for reorder math, AI prompt grounding and the order-webhook logic
+- [ ] Direct automated tests for `forecasting.js`
 - [ ] Automated daily email/Slack stockout digest
 - [ ] Auto-draft Purchase Orders (would need a `write_inventory` scope — bigger App Store
       review bar, worth adding once there's real demand)
 - [ ] Multi-currency cost-of-goods (COGS) margin optimization
-- [ ] Shopify App Store listing — submission in progress
+- [x] [Live on the Shopify App Store](https://apps.shopify.com/ai-forecast-agent)
 
 Contributions are very welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a
-PR (the short version: keep `forecasting.js` pure, keep scopes read-only unless a write
-feature is specifically agreed on first, and run `npm run build` before pushing). Found a
+PR (the short version: keep the math pure and tested, keep scopes read-only unless a write
+feature is specifically agreed on first, and run `npm test` and `npm run build` before
+pushing). Found a
 security issue? Please see [`SECURITY.md`](SECURITY.md) instead of opening a public issue.
