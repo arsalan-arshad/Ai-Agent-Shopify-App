@@ -124,7 +124,7 @@ product-level discussion: open an issue first.
 - **Mixed version precision:** the header has millisecond precision, `updated_at` and the
   backfill's GraphQL `updatedAt` have second precision. A delivery whose trigger time lags its
   own `updated_at` by a second or two could in theory be ordered wrongly against a backfilled
-  row. Shopify always sends the header, so this is narrow.
+  row. Shopify normally sends the header, so this is narrow.
 - The `X-Shopify-Triggered-At` header is not covered by the HMAC. A replayed signed body with a
   forged header could defeat the stale check for one order in one shop; the future-version cap
   limits the damage of a bad value.
@@ -138,24 +138,34 @@ deliveries, random permutations, partial refunds, legacy rows. It is **not** par
 
 **Use a throwaway local Postgres database and dummy secrets only. Never point this at the
 production `DATABASE_URL`, and never use a real `SHOPIFY_API_SECRET`.** The script refuses to
-run unless `DATABASE_URL` is on localhost and the database is named
-`agent_forecast_replay_test`.
+run unless its own `DATABASE_URL` points at localhost (or 127.0.0.1), includes a user (for
+example `user@localhost`), and names a database `agent_forecast_replay_test`. It cannot see
+which database the server it talks to is using, so start that server with the same throwaway
+`DATABASE_URL`.
+
+Prerequisite: a local PostgreSQL that is running (see the README's local setup).
+
+Set these in **both** terminals:
+
+```bash
+export DATABASE_URL=postgresql://YOUR_USER@localhost:5432/agent_forecast_replay_test
+export SHOPIFY_API_KEY=dummykey SHOPIFY_API_SECRET=dummysecret
+```
 
 ```bash
 createdb agent_forecast_replay_test
-export DATABASE_URL=postgresql://YOUR_USER@localhost:5432/agent_forecast_replay_test
-export SHOPIFY_API_KEY=dummykey SHOPIFY_API_SECRET=dummysecret
-
 npx prisma migrate deploy
 npx prisma generate
 npm run build
 
-# terminal 1: the server, with the same env vars
+# terminal 1: the server
 PORT=39217 SHOPIFY_APP_URL=http://localhost:39217 npx remix-serve build/server/index.js
 
 # terminal 2: the replay (optionally pass a seed for reproducible random orderings)
 BASE_URL=http://localhost:39217 node scripts/replay-order-webhooks.mjs 424242
 ```
+
+(`SCOPES` is optional for this flow and `ENCRYPTION_KEY` is only needed by the AI paths.)
 
 It prints a pass/fail table and exits non-zero on any failure. If the server returns HTTP 500
 with an "Unknown argument" Prisma error, run `npx prisma generate` and restart the server.
