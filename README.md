@@ -110,7 +110,10 @@ Free plan**.
   - Delta-based order tracking (`orders/create` + `orders/updated` → one handler,
     `webhooks.orders-updated.jsx`) — `ProcessedOrder` stores the last line-item snapshot per
     order so a redelivered or edited webhook only applies the *difference* to `DailyUsage`,
-    never re-adds the full quantity and double-counts.
+    never re-adds the full quantity and double-counts. Deliveries carry a version
+    (`X-Shopify-Triggered-At`, else `updated_at`) so out-of-order webhooks can't overwrite
+    newer state, and line items use `current_quantity` so edits and partial refunds are
+    reflected. Design notes: [`docs/WEBHOOKS.md`](docs/WEBHOOKS.md).
   - Install-time usage backfill (`app/lib/backfill.server.js`) so a brand-new install isn't
     staring at an empty forecast table.
   - The full mandatory compliance webhook set — `customers/data_request`, `customers/redact`,
