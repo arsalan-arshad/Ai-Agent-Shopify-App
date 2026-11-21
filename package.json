@@ -19,7 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
     "@google/genai": "^2.24.0",
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^7.10.1",
     "@remix-run/node": "^2.15.0",
     "@remix-run/react": "^2.15.0",
     "@remix-run/serve": "^2.15.0",
